@@ -1,8 +1,8 @@
 # WiFi Signal Heatmap Simulator (Enterprise Standard)
 
-A physically accurate WiFi signal propagation simulator designed for enterprise network planning (Telkomsel Pamasuka Standards). This tool simulates the coverage of **Aruba Access Point 315** in complex indoor environments, accounting for material attenuation, reflection, and diffraction.
+A physically accurate WiFi signal propagation simulator designed for enterprise network planning. This tool simulates the coverage of **Aruba Access Point 315** in complex indoor environments, accounting for material attenuation, reflection, and diffraction.
 
-![Preview](preview.png)
+![Preview](preview.png) coming soon
 
 ## 🚀 Key Features
 
@@ -68,7 +68,7 @@ A physically accurate WiFi signal propagation simulator designed for enterprise 
 5.  **Visualize**: The heatmap updates automatically. Red areas indicate poor signal (< -85dBm), while Green indicates excellent coverage (> -65dBm).
 
 ## 🏗️ Standards Compliance
-This simulator follows the **Telkomsel Pamasuka Enterprise** standards for WiFi planning:
+This simulator follows the industries standards for WiFi planning:
 -   **Signal Cutoff**: -90 dBm
 -   **Good Signal Threshold**: -65 dBm
 -   **Scale**: 1 meter = 40 pixels (High Resolution)
