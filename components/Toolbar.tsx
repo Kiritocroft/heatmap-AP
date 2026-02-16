@@ -42,13 +42,21 @@ export function Toolbar({
     ] as const;
 
     const materials: { id: WallMaterial, label: string }[] = [
-        { id: 'concrete', label: 'Concrete (-20dB)' },
-        { id: 'brick', label: 'Brick (-12dB)' },
-        { id: 'wood', label: 'Wood (-5dB)' },
-        { id: 'drywall', label: 'Drywall (-5dB)' },
+        { id: 'concrete', label: 'Concrete (-15dB)' },
+        { id: 'brick', label: 'Brick (-10dB)' },
+        { id: 'wood', label: 'Wood (-4dB)' },
+        { id: 'drywall', label: 'Drywall (-3dB)' },
         { id: 'glass', label: 'Glass (-3dB)' },
-        { id: 'metal', label: 'Metal (-45dB)' },
+        { id: 'metal', label: 'Metal (-50dB)' },
     ];
+
+    const [saved, setSaved] = React.useState(false);
+
+    const handleSave = () => {
+        // Autosave is active, just show feedback
+        setSaved(true);
+        setTimeout(() => setSaved(false), 2000);
+    };
 
     return (
         <div className="w-72 bg-white border-r border-neutral-200 flex flex-col h-full shadow-xl z-20">
@@ -150,6 +158,20 @@ export function Toolbar({
                 <div className="space-y-3">
                     <label className="text-xs font-bold text-neutral-400 uppercase tracking-wider">Actions</label>
 
+                    {/* Manual Save Button (Visual Feedback for Autosave) */}
+                    <button
+                        onClick={handleSave}
+                        className={cn(
+                            "w-full flex items-center justify-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-colors border mb-2",
+                            saved 
+                                ? "bg-green-50 text-green-600 border-green-200"
+                                : "bg-white border-neutral-200 text-neutral-600 hover:bg-neutral-50"
+                        )}
+                    >
+                        <Save size={16} />
+                        {saved ? "Saved!" : "Save Project"}
+                    </button>
+
                     {selectedEntity === 'ap' && (
                         <button
                             onClick={onToggleAntenna}
@@ -158,7 +180,7 @@ export function Toolbar({
                                 showAntenna
                                     ? "bg-blue-600 text-white"
                                     : "bg-white border border-neutral-200 text-neutral-700 hover:bg-neutral-50"
-                            )}
+                                )}
                         >
                             <Radio size={16} />
                             <span>Antenna Pattern</span>
@@ -198,18 +220,25 @@ export function Toolbar({
                                 : "border-neutral-100 text-neutral-300 cursor-not-allowed"
                             )}
                     >
-                        <Trash2 className="w-4 h-4" />
+                        <Trash2 size={16} />
                         Delete Selected
                     </button>
 
                     <button
                         onClick={onClearAll}
-                        className="w-full text-xs text-neutral-400 hover:text-red-500 underline py-2 transition-colors"
+                        className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-white border border-neutral-200 rounded-md text-sm font-medium text-neutral-600 hover:bg-neutral-50 hover:text-red-600 transition-colors"
                     >
-                        Clear Canvas
+                        <Trash2 size={16} />
+                        Clear All
                     </button>
                 </div>
 
+            </div>
+            
+            {/* Status Bar */}
+            <div className="p-3 bg-neutral-50 border-t border-neutral-200 text-[10px] text-neutral-400 flex justify-between">
+                <span>v1.2.0 (Telkomsel)</span>
+                <span>Aruba AP-315</span>
             </div>
         </div>
     );

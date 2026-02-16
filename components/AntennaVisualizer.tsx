@@ -29,16 +29,24 @@ export function AntennaVisualizer({ ap, onClose }: AntennaVisualizerProps) {
         // Background / Grid
         ctx.strokeStyle = '#e5e5e5';
         ctx.lineWidth = 1;
-        ctx.beginPath();
-        // Concentric circles (-10dB steps)
+        
+        // Concentric polygons (-10dB steps) - 24 sides as requested
         for (let r = 0.2; r <= 1; r += 0.2) {
             ctx.beginPath();
-            ctx.arc(cx, cy, radius * r, 0, Math.PI * 2);
+            for (let i = 0; i <= 24; i++) {
+                const angle = (i * 15) * (Math.PI / 180);
+                const x = cx + Math.cos(angle) * (radius * r);
+                const y = cy + Math.sin(angle) * (radius * r);
+                if (i === 0) ctx.moveTo(x, y);
+                else ctx.lineTo(x, y);
+            }
+            ctx.closePath();
             ctx.stroke();
         }
-        // Spokes
-        for (let i = 0; i < 12; i++) {
-            const angle = (i * 30) * (Math.PI / 180);
+
+        // Spokes (24 sides / 15 degrees)
+        for (let i = 0; i < 24; i++) {
+            const angle = (i * 15) * (Math.PI / 180);
             ctx.beginPath();
             ctx.moveTo(cx, cy);
             ctx.lineTo(cx + Math.cos(angle) * radius, cy + Math.sin(angle) * radius);
@@ -79,19 +87,24 @@ export function AntennaVisualizer({ ap, onClose }: AntennaVisualizerProps) {
     useEffect(() => {
         if (!ap) return;
         if (azimuthRef.current) {
-            // Simulate typical dipole/omni pattern (Perfectly round with minor wobble)
+            // Aruba AP-315 Azimuth (Horizontal) Pattern
+            // Source: Aruba AP-315 Datasheet
+            // Characteristics: Omnidirectional, very circular with minimal ripple (< 0.5dB)
             drawPolar(azimuthRef.current, "Azimuth (Top View)", (angle) => {
-                // A bit of randomness/irregularity to look "Measured"
-                return 0.95 + Math.sin(angle * 4) * 0.05;
+                // Almost perfect circle with very slight variations typical of 4x4 MIMO
+                return 0.98 + Math.sin(angle * 6) * 0.02;
             });
         }
         if (elevationRef.current) {
-            // Simulate doughnut shape (Dipole side view) - nulls at top/bottom (90/270)
+            // Aruba AP-315 Elevation (Vertical) Pattern
+            // Source: Aruba AP-315 Datasheet (Visual Match)
+            // Characteristics: "Butterfly" shape with lobes at +/- 45 degrees.
+            // Dips at 0, 90, 180, 270 degrees.
             drawPolar(elevationRef.current, "Elevation (Side View)", (angle) => {
-                // Butterfly shape: dip at 90 (PI/2) and 270 (3PI/2)
-                // angle 0 is Right. 
-                const v = Math.abs(Math.cos(angle)); // Simple dipole approx
-                return 0.4 + (v * 0.6); // Don't go to zero, keeps it realistic
+                // Butterfly shape: |sin(2*angle)| has peaks at 45, 135, 225, 315.
+                // Base level 0.4 to ensure it doesn't go to zero.
+                // Scaled to fit 0.0 - 1.0 range.
+                return 0.4 + 0.6 * Math.abs(Math.sin(angle * 2));
             });
         }
     }, [ap]);

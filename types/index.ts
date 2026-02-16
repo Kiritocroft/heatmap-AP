@@ -18,24 +18,28 @@ export interface Door {
   wallId: string;
   ratio: number; // Position along the wall (0 to 1)
   width: number; // Width in pixels (default ~16px for 80cm)
+  swingType: 'single' | 'double';
+  hinge: 'left' | 'right'; // 'left' (start-side) or 'right' (end-side)
+  openDirection: 'left' | 'right'; // Relative to wall vector direction
 }
 
 export interface AccessPoint extends Point {
   id: string;
-  txPower: number; // Default: 15 dBm (Standard Indoor AP)
+  txPower: number; // Default: 18 dBm (Aruba AP 315 Typical)
   channel: number;
   color: string;
 }
 
 // Telkomsel Corporate Standards for Material Attenuation
 // Industry-Standard Values for 5GHz (High Accuracy Mode)
+// Source: NIST IR 6055 & Aruba VRD
 export const MATERIAL_ATTENUATION: Record<WallMaterial, number> = {
-  glass: 3,      // -3 dB (minimal loss)
-  wood: 5,       // -5 dB (light partition)
-  drywall: 5,    // -5 dB (same as wood)
-  brick: 12,     // -12 dB (solid masonry)
-  concrete: 20,  // -20 dB (thick structural walls)
-  metal: 45,     // -45 dB (elevator shafts, immediate cutoff)
+  glass: 3,      // -3 dB (Standard Clear Glass)
+  drywall: 3,    // -3 dB (Hollow Drywall/Gypsum)
+  wood: 4,       // -4 dB (Standard Door/Plywood)
+  brick: 10,     // -10 dB (Red Brick Wall)
+  concrete: 15,  // -15 dB (Standard Concrete)
+  metal: 50,     // -50 dB (Effective Blocking/Faraday Cage)
 };
 
 // Physics Constants

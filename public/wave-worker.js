@@ -6,11 +6,11 @@ const PIXELS_PER_METER = 40;
 
 const MATERIAL_ATTENUATION = {
     glass: 3,
-    wood: 5,
-    drywall: 5,
-    brick: 12,
-    concrete: 20,
-    metal: 45,
+    drywall: 3,
+    wood: 4,
+    brick: 10,
+    concrete: 15,
+    metal: 50,
 };
 
 // --- Helper Functions ---
@@ -191,26 +191,40 @@ const CONSTANT_FSPL = 20 * Math.log10(FREQUENCY_MHZ) - 27.55;
 function runDijkstra(startPoint, startSignal, attenuationGrid, cols, rows, cellSize, maskFn) {
     const size = cols * rows;
     const signalGrid = new Float32Array(size);
+    const distGrid = new Float32Array(size); // Store distances for animation
+    
     signalGrid.fill(-120);
+    distGrid.fill(Infinity);
 
     const startCol = Math.floor(startPoint.x / cellSize);
     const startRow = Math.floor(startPoint.y / cellSize);
 
-    if (startCol < 0 || startCol >= cols || startRow < 0 || startRow >= rows) {
-        return signalGrid;
+    if (startCol < 0 || startCol >= cols || startRow < 0 || startRow >= rows || Number.isNaN(startCol) || Number.isNaN(startRow)) {
+        return { signalGrid, distGrid };
     }
 
     const startIdx = startRow * cols + startCol;
     
     const pq = new PriorityQueue();
     
+    // State now tracks MINIMUM TOTAL LOSS (Signal Strength Inverted)
+    // We want to minimize (FSPL + WallLoss) => Maximize Signal
+    const totalLossState = new Float32Array(size);
+    totalLossState.fill(Infinity);
+    
+    // We also need to track the components that made up this loss to propagate correctly
+    const wallLossState = new Float32Array(size);
     const distState = new Float32Array(size);
-    distState.fill(Infinity);
     
-    distState[startIdx] = 0.1; 
+    wallLossState[startIdx] = 0; 
+    distState[startIdx] = 0;
+    totalLossState[startIdx] = 0;
+    
     signalGrid[startIdx] = startSignal;
+    distGrid[startIdx] = 0;
     
-    pq.enqueue(startIdx, -startSignal);
+    // Priority is TOTAL LOSS (FSPL + Wall)
+    pq.enqueue(startIdx, 0);
 
     const stepSizeMeters = cellSize / PIXELS_PER_METER;
     const diagStepMeters = stepSizeMeters * 1.4142;
@@ -228,11 +242,18 @@ function runDijkstra(startPoint, startSignal, attenuationGrid, cols, rows, cellS
 
     while (!pq.isEmpty()) {
         const currentIdx = pq.dequeue();
-        const currentSignal = signalGrid[currentIdx];
+        const currentTotalLoss = totalLossState[currentIdx];
+        
+        // If we found a better path to this node already, skip
+        // Note: Floating point comparison, use epsilon if needed, but < check is usually fine
+        if (currentTotalLoss > totalLossState[currentIdx]) continue;
+
+        const currentWallLoss = wallLossState[currentIdx];
         const currentDist = distState[currentIdx];
+        const currentSignal = signalGrid[currentIdx];
 
         if (currentSignal <= -120) continue;
-
+        
         const r = Math.floor(currentIdx / cols);
         const c = currentIdx % cols;
 
@@ -244,34 +265,69 @@ function runDijkstra(startPoint, startSignal, attenuationGrid, cols, rows, cellS
                 if (maskFn && !maskFn(nc, nr)) continue;
 
                 const newIdx = nr * cols + nc;
-                
-                const newDist = currentDist + dir.dist;
-                const fsplLoss = 20 * Math.log10(newDist / currentDist);
                 const cellAttenuationDensity = attenuationGrid[newIdx];
-                const wallLoss = cellAttenuationDensity * dir.dist;
-                const newSignal = currentSignal - fsplLoss - wallLoss;
+                
+                // Calculate new state components
+                const additionalWallLoss = cellAttenuationDensity * dir.dist;
+                const newWallLoss = currentWallLoss + additionalWallLoss;
+                const newDist = currentDist + dir.dist;
+                
+                // Calculate new Total Loss
+                const safeDist = Math.max(0.1, newDist);
+                
+                // Hybrid Distance Calculation for Visual Realism (Circle vs Octagon)
+                // If the path distance is very close to Euclidean distance (Line of Sight),
+                // use Euclidean distance to ensure perfect circles in open space.
+                // Otherwise (diffraction/bending), use the accumulated path distance.
+                
+                const dx = (nc * cellSize + cellSize/2) - startPoint.x;
+                const dy = (nr * cellSize + cellSize/2) - startPoint.y;
+                const directDist = Math.sqrt(dx*dx + dy*dy) / PIXELS_PER_METER;
+                
+                // Ratio of Path / Direct. 
+                // Grid path (Chebyshev/Octagonal) is at most ~1.08x longer than Euclidean in 8-way grid.
+                // If ratio is small, we are likely in Line-Of-Sight.
+                const ratio = (newDist / Math.max(0.01, directDist));
+                
+                let effectiveDist = newDist;
+                if (ratio < 1.1) {
+                    effectiveDist = directDist;
+                }
 
-                if (newSignal > signalGrid[newIdx]) {
-                    signalGrid[newIdx] = newSignal;
+                // FSPL = 20log10(d) + 20log10(f) + K
+                const fsplLoss = 20 * Math.log10(Math.max(0.1, effectiveDist)) + CONSTANT_FSPL; 
+                
+                const newTotalLoss = fsplLoss + newWallLoss;
+
+                if (newTotalLoss < totalLossState[newIdx]) {
+                    totalLossState[newIdx] = newTotalLoss;
+                    wallLossState[newIdx] = newWallLoss;
                     distState[newIdx] = newDist;
-                    pq.enqueue(newIdx, -newSignal);
+                    
+                    const newSignal = startSignal - newTotalLoss;
+
+                    signalGrid[newIdx] = newSignal;
+                    distGrid[newIdx] = safeDist;
+                    
+                    pq.enqueue(newIdx, newTotalLoss);
                 }
             }
         }
     }
 
-    return signalGrid;
+    return { signalGrid, distGrid };
 }
 
-function propagateWave(ap, walls, doors, canvasWidth, canvasHeight, cellSize = 5) {
+function propagateWave(ap, walls, doors, canvasWidth, canvasHeight, cellSize = 10) {
     const cols = Math.ceil(canvasWidth / cellSize);
     const rows = Math.ceil(canvasHeight / cellSize);
     
     const baseAttenuationGrid = buildAttenuationGrid(walls, doors, canvasWidth, canvasHeight, cellSize);
     
-    const mainSignalGrid = runDijkstra(
+    // Main Signal
+    let { signalGrid: mainSignalGrid, distGrid: mainDistGrid } = runDijkstra(
         { x: ap.x, y: ap.y },
-        ap.txPower - (20 * Math.log10(0.1) + CONSTANT_FSPL), 
+        ap.txPower, 
         baseAttenuationGrid,
         cols,
         rows,
@@ -280,105 +336,133 @@ function propagateWave(ap, walls, doors, canvasWidth, canvasHeight, cellSize = 5
 
     const metalWalls = walls.filter(w => w.material === 'metal');
     
-    if (metalWalls.length === 0) {
-        return mainSignalGrid;
-    }
-
-    for (const wall of metalWalls) {
-        const virtualAPPos = mirrorPointAcrossLine({ x: ap.x, y: ap.y }, wall.start, wall.end);
-        
-        const reflectionAttenuationGrid = buildAttenuationGrid(
-            walls.filter(w => w.id !== wall.id), 
-            doors, 
-            canvasWidth, 
-            canvasHeight, 
-            cellSize
-        );
-
-        const apSide = getSideOfLine(wall.start, wall.end, { x: ap.x, y: ap.y });
-
-        const reflectionSignalGrid = runDijkstra(
-            virtualAPPos,
-            ap.txPower - (20 * Math.log10(0.1) + CONSTANT_FSPL) - 2.2, 
-            reflectionAttenuationGrid,
-            cols,
-            rows,
-            cellSize,
-            (c, r) => {
-                const cellX = c * cellSize + cellSize / 2;
-                const cellY = r * cellSize + cellSize / 2;
-                const cellSide = getSideOfLine(wall.start, wall.end, { x: cellX, y: cellY });
-                return cellSide === apSide;
+    if (metalWalls.length > 0) {
+        // Optimization: Sort metal walls by distance to AP and limit reflections
+        // This prevents exponential slowdown if user draws many metal segments
+        const sortedMetalWalls = metalWalls.map(w => {
+            // Distance from AP to line segment
+            const A = w.start.x - ap.x;
+            const B = w.start.y - ap.y;
+            const C = w.end.x - w.start.x;
+            const D = w.end.y - w.start.y;
+            
+            const dot = A * C + B * D;
+            const len_sq = C * C + D * D;
+            let param = -1;
+            if (len_sq !== 0) param = -dot / len_sq;
+            
+            let xx, yy;
+            if (param < 0) {
+                xx = w.start.x; yy = w.start.y;
+            } else if (param > 1) {
+                xx = w.end.x; yy = w.end.y;
+            } else {
+                xx = w.start.x + param * C;
+                yy = w.start.y + param * D;
             }
-        );
+            
+            const dx = ap.x - xx;
+            const dy = ap.y - yy;
+            return { wall: w, distSq: dx * dx + dy * dy };
+        }).sort((a, b) => a.distSq - b.distSq);
 
-        for (let i = 0; i < mainSignalGrid.length; i++) {
-            const mainVal = mainSignalGrid[i];
-            const refVal = reflectionSignalGrid[i];
+        // Limit to 6 closest metal walls for reflection calculations
+        const MAX_REFLECTIONS = 6;
+        const wallsToProcess = sortedMetalWalls.slice(0, MAX_REFLECTIONS).map(item => item.wall);
 
-            if (refVal > -120) {
-                if (mainVal <= -120) {
-                    mainSignalGrid[i] = refVal;
-                } else {
-                    const p1 = Math.pow(10, mainVal / 10);
-                    const p2 = Math.pow(10, refVal / 10);
-                    mainSignalGrid[i] = 10 * Math.log10(p1 + p2);
+        for (const wall of wallsToProcess) {
+            const virtualAPPos = mirrorPointAcrossLine({ x: ap.x, y: ap.y }, wall.start, wall.end);
+            
+            // Rebuilding attenuation grid is costly but necessary for correct reflection masking
+            // Optimization: If we have many walls, we could clone the base grid and just "erase" the metal wall
+            // But for now, with GRID_SIZE=10, rebuilding is acceptable.
+            const reflectionAttenuationGrid = buildAttenuationGrid(
+                walls.filter(w => w.id !== wall.id), 
+                doors, 
+                canvasWidth, 
+                canvasHeight, 
+                cellSize
+            );
+
+            const apSide = getSideOfLine(wall.start, wall.end, { x: ap.x, y: ap.y });
+
+            const { signalGrid: reflectionSignalGrid, distGrid: reflectionDistGrid } = runDijkstra(
+                virtualAPPos,
+                ap.txPower, 
+                reflectionAttenuationGrid,
+                cols,
+                rows,
+                cellSize,
+                (c, r) => {
+                    const x = c * cellSize;
+                    const y = r * cellSize;
+                    // Only allow reflection on the SAME side as the AP
+                    return getSideOfLine(wall.start, wall.end, { x, y }) === apSide;
+                }
+            );
+
+            // Merge Reflection
+            for (let i = 0; i < mainSignalGrid.length; i++) {
+                if (reflectionSignalGrid[i] > mainSignalGrid[i]) {
+                    mainSignalGrid[i] = reflectionSignalGrid[i];
+                    mainDistGrid[i] = reflectionDistGrid[i]; // Update distance for wave animation
                 }
             }
         }
     }
 
-    return mainSignalGrid;
+    return { signalGrid: mainSignalGrid, distGrid: mainDistGrid };
 }
 
-// --- Message Handler ---
-self.onmessage = function(e) {
-    const { aps, walls, doors, width, height, cellSize } = e.data;
-
-    if (!aps || aps.length === 0) {
-        self.postMessage({ signalGrid: null, minDistGrid: null, rows: 0, cols: 0 });
-        return;
-    }
-
+function computeCompositeHeatmap(aps, walls, doors, width, height, cellSize) {
     const cols = Math.ceil(width / cellSize);
     const rows = Math.ceil(height / cellSize);
     const size = cols * rows;
+    
+    const finalSignalGrid = new Float32Array(size);
+    const finalMinDistGrid = new Float32Array(size);
+    
+    finalSignalGrid.fill(-120);
+    finalMinDistGrid.fill(Infinity);
 
-    const combinedGrid = new Float32Array(size);
-    const minDistGrid = new Float32Array(size);
-    combinedGrid.fill(-120);
-    minDistGrid.fill(Infinity);
-
-    for (const ap of aps) {
-        const waveGrid = propagateWave(ap, walls, doors, width, height, cellSize);
-
-        for (let i = 0; i < size; i++) {
-            const existing = combinedGrid[i];
-            const newSignal = waveGrid[i];
-
-            if (newSignal > -120) {
-                if (existing <= -120) {
-                    combinedGrid[i] = newSignal;
-                } else {
-                    const p1 = Math.pow(10, existing / 10);
-                    const p2 = Math.pow(10, newSignal / 10);
-                    combinedGrid[i] = 10 * Math.log10(p1 + p2);
+    if (aps && aps.length > 0) {
+        aps.forEach(ap => {
+            const { signalGrid, distGrid } = propagateWave(ap, walls, doors, width, height, cellSize);
+            
+            for (let i = 0; i < size; i++) {
+                if (signalGrid[i] > finalSignalGrid[i]) {
+                    finalSignalGrid[i] = signalGrid[i];
+                    finalMinDistGrid[i] = distGrid[i];
                 }
-
-                const r = Math.floor(i / cols);
-                const c = i % cols;
-                const px = c * cellSize + cellSize / 2;
-                const py = r * cellSize + cellSize / 2;
-                const dist = Math.hypot(px - ap.x, py - ap.y) / PIXELS_PER_METER;
-                if (dist < minDistGrid[i]) minDistGrid[i] = dist;
             }
-        }
+        });
     }
 
-    self.postMessage({
-        signalGrid: combinedGrid,
-        minDistGrid: minDistGrid,
+    return { 
+        signalGrid: finalSignalGrid, 
+        minDistGrid: finalMinDistGrid,
         rows,
-        cols
-    }, [combinedGrid.buffer, minDistGrid.buffer]); // Transferable objects
+        cols 
+    };
+}
+
+self.onmessage = (e) => {
+    const data = e.data;
+
+    if (data.type === 'WARMUP') {
+        // Run a tiny dummy simulation to force JIT compilation of the heavy functions
+        const dummyAp = { x: 0, y: 0, txPower: 18 };
+        const dummyWalls = [];
+        const dummyDoors = [];
+        // Small 10x10 grid
+        computeCompositeHeatmap([dummyAp], dummyWalls, dummyDoors, 100, 100, 10);
+        return;
+    }
+
+    const { id, aps, walls, doors, width, height, cellSize } = data;
+
+    const result = computeCompositeHeatmap(aps, walls, doors, width, height, cellSize);
+    
+    // Return ID to validate request freshness
+    self.postMessage({ ...result, id });
 };

@@ -26,9 +26,7 @@ export default function Home() {
   };
 
   const handleClear = () => {
-    if (confirm('Are you sure you want to clear the entire canvas?')) {
-      editorRef.current?.clearAll();
-    }
+    editorRef.current?.clearAll();
   };
 
   return (
