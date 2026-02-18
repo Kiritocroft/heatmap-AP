@@ -1,11 +1,11 @@
 'use client';
 
-import React from 'react';
-import { MousePointer2, Pencil, Router, Trash2, ZoomIn, ZoomOut, Save, DoorOpen, Upload, Square, Radio } from 'lucide-react';
+import React, { DragEvent } from 'react';
+import { MousePointer2, Pencil, Router, Trash2, ZoomIn, ZoomOut, Save, DoorOpen, Upload, Square, Radio, Ruler, Layers, Plus, GripVertical } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { WallMaterial } from '@/types';
 
-type ToolType = 'select' | 'wall' | 'ap' | 'door';
+type ToolType = 'select' | 'wall' | 'ap' | 'door' | 'scale';
 
 interface ToolbarProps {
     activeTool: ToolType;
@@ -23,6 +23,14 @@ interface ToolbarProps {
     selectedEntity: 'wall' | 'ap' | 'door' | null;
     showAntenna: boolean;
     onToggleAntenna: () => void;
+    
+    // Multi-Floor Props
+    floors: { id: string, name: string }[];
+    currentFloorId: string;
+    onFloorChange: (id: string) => void;
+    onAddFloor: () => void;
+    onDeleteFloor: (id: string) => void;
+    onReorderFloors?: (dragIndex: number, hoverIndex: number) => void;
 }
 
 export function Toolbar({
@@ -31,14 +39,50 @@ export function Toolbar({
     selectedMaterial, onMaterialChange,
     onClearAll, canDelete, onDeleteSelected,
     onUploadImage, imageOpacity, onOpacityChange,
-    selectedEntity, showAntenna, onToggleAntenna
+    selectedEntity, showAntenna, onToggleAntenna,
+    floors, currentFloorId, onFloorChange, onAddFloor, onDeleteFloor, onReorderFloors
 }: ToolbarProps) {
+
+    // --- Drag & Drop ---
+    const [draggedFloorIndex, setDraggedFloorIndex] = React.useState<number | null>(null);
+
+    const handleDragStart = (e: React.DragEvent<HTMLDivElement>, index: number) => {
+        setDraggedFloorIndex(index);
+        e.dataTransfer.effectAllowed = 'move';
+        // Make the ghost image transparent or custom if needed
+        // e.dataTransfer.setDragImage(e.currentTarget, 20, 20);
+    };
+
+    const handleDragOver = (e: React.DragEvent<HTMLDivElement>, index: number) => {
+        e.preventDefault();
+        if (draggedFloorIndex === null || draggedFloorIndex === index) return;
+        
+        // Optimistic UI update could happen here, but for simplicity let's just trigger onDrop
+        // Actually, for live reordering we might want to call onReorderFloors continuously
+        // But to avoid too many updates, let's just do it on drop for now, or handle drag enter.
+    };
+
+    const handleDrop = (e: React.DragEvent<HTMLDivElement>, targetIndex: number) => {
+        e.preventDefault();
+        if (draggedFloorIndex === null || draggedFloorIndex === targetIndex) return;
+        
+        if (onReorderFloors) {
+            onReorderFloors(draggedFloorIndex, targetIndex);
+        }
+        setDraggedFloorIndex(null);
+    };
+
+    const handleDragEnd = () => {
+        setDraggedFloorIndex(null);
+    };
+
 
     const tools = [
         { id: 'select', icon: MousePointer2, label: 'Select / Move' },
         { id: 'wall', icon: Square, label: 'Draw Wall' },
         { id: 'door', icon: DoorOpen, label: 'Add Door' },
         { id: 'ap', icon: Router, label: 'Add AP' },
+        { id: 'scale', icon: Ruler, label: 'Set Scale' },
     ] as const;
 
     const materials: { id: WallMaterial, label: string }[] = [
@@ -66,6 +110,71 @@ export function Toolbar({
             </div>
 
             <div className="flex-1 overflow-y-auto p-4 space-y-8">
+
+                {/* FLOOR SELECTOR */}
+                <div className="space-y-3">
+                    <div className="flex items-center justify-between">
+                        <label className="text-xs font-bold text-neutral-400 uppercase tracking-wider">Floors</label>
+                        <button 
+                            onClick={onAddFloor}
+                            className="p-1 text-blue-600 hover:bg-blue-50 rounded-full transition-colors"
+                            title="Add New Floor"
+                        >
+                            <Plus size={16} />
+                        </button>
+                    </div>
+                    <div className="flex flex-col gap-2 relative">
+                        {floors.map((floor, index) => (
+                            <div 
+                                key={floor.id} 
+                                className={cn(
+                                    "flex items-center gap-1 w-full rounded-lg transition-all duration-200 border",
+                                    draggedFloorIndex === index ? "opacity-50 border-dashed border-blue-400 bg-blue-50" : "border-transparent"
+                                )}
+                                draggable={!!onReorderFloors}
+                                onDragStart={(e) => handleDragStart(e, index)}
+                                onDragOver={(e) => {
+                                    e.preventDefault();
+                                    // Optional: Add visual indicator of where item will drop
+                                }}
+                                onDrop={(e) => handleDrop(e, index)}
+                                onDragEnd={handleDragEnd}
+                            >
+                                <div className="pl-1 cursor-grab active:cursor-grabbing text-neutral-300 hover:text-neutral-500">
+                                    <GripVertical size={14} />
+                                </div>
+                                <button
+                                    onClick={() => onFloorChange(floor.id)}
+                                    className={cn(
+                                        "flex items-center gap-2 p-2 rounded-lg transition-all duration-200 flex-1 text-sm text-left overflow-hidden",
+                                        currentFloorId === floor.id
+                                            ? "bg-blue-600 text-white shadow-md"
+                                            : "hover:bg-gray-100 text-gray-700"
+                                    )}
+                                >
+                                    <Layers size={16} className="shrink-0" />
+                                    <span className="truncate">{floor.name}</span>
+                                    {currentFloorId === floor.id && <span className="w-2 h-2 rounded-full bg-white animate-pulse shrink-0 ml-auto"></span>}
+                                </button>
+                                
+                                {floors.length > 1 && (
+                                    <button
+                                        onClick={(e) => {
+                                            e.stopPropagation();
+                                            if(confirm(`Are you sure you want to delete ${floor.name}?`)) {
+                                                onDeleteFloor(floor.id);
+                                            }
+                                        }}
+                                        className="p-2 text-neutral-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"
+                                        title="Delete Floor"
+                                    >
+                                        <Trash2 size={14} />
+                                    </button>
+                                )}
+                            </div>
+                        ))}
+                    </div>
+                </div>
 
                 {/* TOOLS */}
                 <div className="space-y-3">

@@ -25,7 +25,7 @@ export interface Door {
 
 export interface AccessPoint extends Point {
   id: string;
-  txPower: number; // Default: 18 dBm (Aruba AP 315 Typical)
+  txPower: number; // Default: 20 dBm (Aruba AP 315 Standard)
   channel: number;
   color: string;
 }
@@ -43,6 +43,6 @@ export const MATERIAL_ATTENUATION: Record<WallMaterial, number> = {
 };
 
 // Physics Constants
-export const PIXELS_PER_METER = 40; // High Res Scale (1m = 40px)
+export const DEFAULT_PIXELS_PER_METER = 40; // High Res Scale (1m = 40px)
 export const SIGNAL_CUTOFF = -90;   // Industry standard "no service" threshold
 export const SIGNAL_STRONG = -50;   // Excellent signal threshold

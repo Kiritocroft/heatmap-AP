@@ -2,41 +2,50 @@ import React from 'react';
 
 export function SignalLegend() {
     return (
-        <div className="absolute bottom-4 right-4 bg-slate-900/95 backdrop-blur-sm p-4 rounded-lg shadow-2xl border border-slate-700 pointer-events-none w-48">
-            <h3 className="text-[10px] uppercase tracking-widest font-bold mb-4 text-slate-400">Signal (dBm)</h3>
+        <div className="absolute bottom-4 right-4 bg-slate-900/95 backdrop-blur-sm p-4 rounded-lg shadow-2xl border border-slate-700 pointer-events-none w-56">
+            <h3 className="text-[10px] uppercase tracking-widest font-bold mb-4 text-slate-400">Signal Strength (dBm)</h3>
 
             {/* Color Gradient Bar */}
-            <div className="h-2 w-full rounded-full bg-gradient-to-r from-red-600 via-orange-500 via-yellow-400 to-green-500 mb-2"></div>
+            <div className="h-2 w-full rounded-full bg-gradient-to-r from-[rgb(56,189,248)] via-[rgb(34,197,94)] via-[rgb(255,255,0)] via-[rgb(255,165,0)] to-[rgb(255,0,100)] mb-2"></div>
             <div className="flex justify-between text-[9px] font-mono text-slate-500 mb-6">
-                <span>-90</span>
-                <span>-70</span>
-                <span>-50</span>
-                <span>-30</span>
+                <span>-85</span>
+                <span>-75</span>
+                <span>-65</span>
+                <span>-60</span>
+                <span>-45</span>
             </div>
 
             <div className="flex flex-col gap-2.5">
                 <div className="flex items-center gap-3">
-                    <div className="w-2.5 h-2.5 rounded-full shadow-[0_0_8px_rgba(34,197,94,0.8)] bg-[#22c55e]"></div>
-                    <span className="text-[11px] font-medium text-slate-300">Excellent (&gt; -50)</span>
+                    <div className="w-3 h-3 rounded-full shadow-[0_0_8px_rgba(255,0,100,0.8)] bg-[rgb(255,0,100)]"></div>
+                    <span className="text-[11px] font-medium text-slate-300">Too Hot (&gt; -45)</span>
                 </div>
                 <div className="flex items-center gap-3">
-                    <div className="w-2.5 h-2.5 rounded-full shadow-[0_0_8px_rgba(132,204,22,0.8)] bg-[#84cc16]"></div>
-                    <span className="text-[11px] font-medium text-slate-300">Good (-50 to -65)</span>
+                    <div className="w-3 h-3 rounded-full shadow-[0_0_8px_rgba(255,165,0,0.8)] bg-[rgb(255,165,0)]"></div>
+                    <span className="text-[11px] font-medium text-slate-300">Excellent (-45 to -60)</span>
                 </div>
                 <div className="flex items-center gap-3">
-                    <div className="w-2.5 h-2.5 rounded-full shadow-[0_0_8px_rgba(234,179,8,0.8)] bg-[#eab308]"></div>
-                    <span className="text-[11px] font-medium text-slate-300">Fair (-65 to -80)</span>
+                    <div className="w-3 h-3 rounded-full shadow-[0_0_8px_rgba(255,255,0,0.8)] bg-[rgb(255,255,0)]"></div>
+                    <span className="text-[11px] font-medium text-slate-300">Good (-60 to -65)</span>
                 </div>
                 <div className="flex items-center gap-3">
-                    <div className="w-2.5 h-2.5 rounded-full shadow-[0_0_8px_rgba(239,68,68,0.8)] bg-[#ef4444]"></div>
-                    <span className="text-[11px] font-medium text-slate-300">Poor (-80 to -100)</span>
+                    <div className="w-3 h-3 rounded-full shadow-[0_0_8px_rgba(34,197,94,0.8)] bg-[rgb(34,197,94)]"></div>
+                    <span className="text-[11px] font-medium text-slate-300">Fair (-65 to -75)</span>
+                </div>
+                <div className="flex items-center gap-3">
+                    <div className="w-3 h-3 rounded-full shadow-[0_0_8px_rgba(56,189,248,0.8)] bg-[rgb(56,189,248)]"></div>
+                    <span className="text-[11px] font-medium text-slate-300">Weak (-75 to -85)</span>
+                </div>
+                 <div className="flex items-center gap-3">
+                    <div className="w-3 h-3 rounded-full border border-slate-600 bg-transparent"></div>
+                    <span className="text-[11px] font-medium text-slate-500">Dead Zone (&lt; -85)</span>
                 </div>
             </div>
 
             <div className="mt-4 pt-3 border-t border-slate-800">
                 <div className="flex items-center justify-between">
-                    <span className="text-[9px] text-slate-500 uppercase">Algorithm</span>
-                    <span className="text-[9px] text-blue-400 font-bold">Dijkstra Wave</span>
+                    <span className="text-[9px] text-slate-500 uppercase">Model</span>
+                    <span className="text-[9px] text-blue-400 font-bold">5GHz Log-Distance</span>
                 </div>
             </div>
         </div>

@@ -2,15 +2,15 @@
 // Avoids blocking the main thread during heavy Dijkstra calculations.
 
 // --- Constants & Types (Inlined to avoid import issues) ---
-const PIXELS_PER_METER = 40;
+const DEFAULT_PIXELS_PER_METER = 40;
 
 const MATERIAL_ATTENUATION = {
-    glass: 3,
-    drywall: 3,
-    wood: 4,
-    brick: 10,
-    concrete: 15,
-    metal: 50,
+    glass: 3,   // Transparent to RF, slightly reflective
+    drywall: 4, // Typical interior wall
+    wood: 6,    // Door/Cabinet
+    brick: 10,  // Light masonry
+    concrete: 15, // Structural
+    metal: 40,  // Elevators/Server Racks (Blocks signal)
 };
 
 // --- Helper Functions ---
@@ -112,7 +112,7 @@ class PriorityQueue {
 }
 
 // Build attenuation density grid (dB per meter)
-function buildAttenuationGrid(walls, doors, width, height, cellSize) {
+function buildAttenuationGrid(walls, doors, width, height, cellSize, pixelsPerMeter) {
     const cols = Math.ceil(width / cellSize);
     const rows = Math.ceil(height / cellSize);
     const grid = new Float32Array(cols * rows);
@@ -129,7 +129,7 @@ function buildAttenuationGrid(walls, doors, width, height, cellSize) {
         const steps = Math.ceil(wallLength / (cellSize / 2));
 
         const thicknessPixels = wall.thickness || 12;
-        const thicknessMeters = thicknessPixels / PIXELS_PER_METER;
+        const thicknessMeters = thicknessPixels / pixelsPerMeter;
         
         const isMetal = wall.material === 'metal';
         let attenuationDensity = 0;
@@ -185,10 +185,10 @@ function buildAttenuationGrid(walls, doors, width, height, cellSize) {
     return grid;
 }
 
-const FREQUENCY_MHZ = 2400; 
+const FREQUENCY_MHZ = 5000; // 5GHz (Enterprise Standard)
 const CONSTANT_FSPL = 20 * Math.log10(FREQUENCY_MHZ) - 27.55;
 
-function runDijkstra(startPoint, startSignal, attenuationGrid, cols, rows, cellSize, maskFn) {
+function runDijkstra(startPoint, startSignal, attenuationGrid, cols, rows, cellSize, pixelsPerMeter, maskFn) {
     const size = cols * rows;
     const signalGrid = new Float32Array(size);
     const distGrid = new Float32Array(size); // Store distances for animation
@@ -226,7 +226,7 @@ function runDijkstra(startPoint, startSignal, attenuationGrid, cols, rows, cellS
     // Priority is TOTAL LOSS (FSPL + Wall)
     pq.enqueue(startIdx, 0);
 
-    const stepSizeMeters = cellSize / PIXELS_PER_METER;
+    const stepSizeMeters = cellSize / pixelsPerMeter;
     const diagStepMeters = stepSizeMeters * 1.4142;
     
     const directions = [
@@ -282,7 +282,7 @@ function runDijkstra(startPoint, startSignal, attenuationGrid, cols, rows, cellS
                 
                 const dx = (nc * cellSize + cellSize/2) - startPoint.x;
                 const dy = (nr * cellSize + cellSize/2) - startPoint.y;
-                const directDist = Math.sqrt(dx*dx + dy*dy) / PIXELS_PER_METER;
+                const directDist = Math.sqrt(dx*dx + dy*dy) / pixelsPerMeter;
                 
                 // Ratio of Path / Direct. 
                 // Grid path (Chebyshev/Octagonal) is at most ~1.08x longer than Euclidean in 8-way grid.
@@ -295,7 +295,12 @@ function runDijkstra(startPoint, startSignal, attenuationGrid, cols, rows, cellS
                 }
 
                 // FSPL = 20log10(d) + 20log10(f) + K
-                const fsplLoss = 20 * Math.log10(Math.max(0.1, effectiveDist)) + CONSTANT_FSPL; 
+                // Refactored to Log-Distance Path Loss Model for High Density (n = 3.5)
+                // PL = PL0 + 10 * n * log10(d)
+                // n = 3.5 (Indoor Office / Obstacles) -> 10 * 3.5 = 35
+                // PL0 = CONSTANT_FSPL (Loss at 1m, approx 40dB for 2.4GHz)
+                const PATH_LOSS_EXPONENT = 3.5;
+                const fsplLoss = (10 * PATH_LOSS_EXPONENT) * Math.log10(Math.max(0.1, effectiveDist)) + CONSTANT_FSPL; 
                 
                 const newTotalLoss = fsplLoss + newWallLoss;
 
@@ -318,11 +323,11 @@ function runDijkstra(startPoint, startSignal, attenuationGrid, cols, rows, cellS
     return { signalGrid, distGrid };
 }
 
-function propagateWave(ap, walls, doors, canvasWidth, canvasHeight, cellSize = 10) {
+function propagateWave(ap, walls, doors, canvasWidth, canvasHeight, cellSize = 10, pixelsPerMeter = DEFAULT_PIXELS_PER_METER) {
     const cols = Math.ceil(canvasWidth / cellSize);
     const rows = Math.ceil(canvasHeight / cellSize);
     
-    const baseAttenuationGrid = buildAttenuationGrid(walls, doors, canvasWidth, canvasHeight, cellSize);
+    const baseAttenuationGrid = buildAttenuationGrid(walls, doors, canvasWidth, canvasHeight, cellSize, pixelsPerMeter);
     
     // Main Signal
     let { signalGrid: mainSignalGrid, distGrid: mainDistGrid } = runDijkstra(
@@ -331,7 +336,8 @@ function propagateWave(ap, walls, doors, canvasWidth, canvasHeight, cellSize = 1
         baseAttenuationGrid,
         cols,
         rows,
-        cellSize
+        cellSize,
+        pixelsPerMeter
     );
 
     const metalWalls = walls.filter(w => w.material === 'metal');
@@ -381,7 +387,8 @@ function propagateWave(ap, walls, doors, canvasWidth, canvasHeight, cellSize = 1
                 doors, 
                 canvasWidth, 
                 canvasHeight, 
-                cellSize
+                cellSize,
+                pixelsPerMeter
             );
 
             const apSide = getSideOfLine(wall.start, wall.end, { x: ap.x, y: ap.y });
@@ -393,6 +400,7 @@ function propagateWave(ap, walls, doors, canvasWidth, canvasHeight, cellSize = 1
                 cols,
                 rows,
                 cellSize,
+                pixelsPerMeter,
                 (c, r) => {
                     const x = c * cellSize;
                     const y = r * cellSize;
@@ -414,7 +422,7 @@ function propagateWave(ap, walls, doors, canvasWidth, canvasHeight, cellSize = 1
     return { signalGrid: mainSignalGrid, distGrid: mainDistGrid };
 }
 
-function computeCompositeHeatmap(aps, walls, doors, width, height, cellSize) {
+function computeCompositeHeatmap(aps, walls, doors, width, height, cellSize, pixelsPerMeter = DEFAULT_PIXELS_PER_METER) {
     const cols = Math.ceil(width / cellSize);
     const rows = Math.ceil(height / cellSize);
     const size = cols * rows;
@@ -427,7 +435,7 @@ function computeCompositeHeatmap(aps, walls, doors, width, height, cellSize) {
 
     if (aps && aps.length > 0) {
         aps.forEach(ap => {
-            const { signalGrid, distGrid } = propagateWave(ap, walls, doors, width, height, cellSize);
+            const { signalGrid, distGrid } = propagateWave(ap, walls, doors, width, height, cellSize, pixelsPerMeter);
             
             for (let i = 0; i < size; i++) {
                 if (signalGrid[i] > finalSignalGrid[i]) {
@@ -455,13 +463,13 @@ self.onmessage = (e) => {
         const dummyWalls = [];
         const dummyDoors = [];
         // Small 10x10 grid
-        computeCompositeHeatmap([dummyAp], dummyWalls, dummyDoors, 100, 100, 10);
+        computeCompositeHeatmap([dummyAp], dummyWalls, dummyDoors, 100, 100, 10, DEFAULT_PIXELS_PER_METER);
         return;
     }
 
-    const { id, aps, walls, doors, width, height, cellSize } = data;
+    const { id, aps, walls, doors, width, height, cellSize, pixelsPerMeter } = data;
 
-    const result = computeCompositeHeatmap(aps, walls, doors, width, height, cellSize);
+    const result = computeCompositeHeatmap(aps, walls, doors, width, height, cellSize, pixelsPerMeter);
     
     // Return ID to validate request freshness
     self.postMessage({ ...result, id });

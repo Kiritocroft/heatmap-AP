@@ -1,15 +1,32 @@
 'use client';
 
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { Toolbar } from '@/components/Toolbar';
-import { HeatmapEditor, HeatmapEditorRef } from '@/components/HeatmapEditor';
+import { HeatmapEditor, HeatmapEditorRef, HeatmapData } from '@/components/HeatmapEditor';
 import { AntennaVisualizer } from '@/components/AntennaVisualizer';
 import { SignalLegend } from '@/components/SignalLegend';
-import { WallMaterial } from '@/types';
+import { WallMaterial, DEFAULT_PIXELS_PER_METER } from '@/types';
 
-type ToolType = 'select' | 'wall' | 'ap' | 'door';
+type ToolType = 'select' | 'wall' | 'ap' | 'door' | 'scale';
+
+interface Floor {
+  id: string;
+  name: string;
+}
+
+interface SavedFloorState extends HeatmapData {
+  backgroundImage: string | null;
+  imageOpacity: number;
+  scale: number;
+}
 
 export default function Home() {
+  // --- Multi-Floor State ---
+  const [floors, setFloors] = useState<Floor[]>([{ id: 'floor-1', name: 'Floor 1' }]);
+  const [currentFloorId, setCurrentFloorId] = useState<string>('floor-1');
+  const floorsDataRef = useRef<Record<string, SavedFloorState>>({});
+  const [isLoaded, setIsLoaded] = useState(false); // Track if initial load is done
+
   const [activeTool, setActiveTool] = useState<ToolType>('select');
   const [scale, setScale] = useState(1);
   const [selectedMaterial, setSelectedMaterial] = useState<WallMaterial>('concrete');
@@ -20,6 +37,172 @@ export default function Home() {
   const [selectedEntity, setSelectedEntity] = useState<{ type: 'wall' | 'ap' | 'door', id: string } | null>(null);
 
   const editorRef = useRef<HeatmapEditorRef>(null);
+
+  // --- Persistence Logic ---
+
+  // 1. Load Global State (Floors List & Last Active Floor) on Mount
+  useEffect(() => {
+    try {
+      const savedFloors = localStorage.getItem('heatmap_floors');
+      const savedCurrentId = localStorage.getItem('heatmap_current_floor_id');
+
+      if (savedFloors) {
+        setFloors(JSON.parse(savedFloors));
+      }
+      if (savedCurrentId) {
+        setCurrentFloorId(savedCurrentId);
+      }
+      setIsLoaded(true);
+    } catch (e) {
+      console.error("Failed to load global state", e);
+      setIsLoaded(true);
+    }
+  }, []);
+
+  const isDataLoadedRef = useRef(false);
+
+  const loadFloorData = () => {
+    if (!editorRef.current) return;
+
+    // Reset loaded flag before loading
+    isDataLoadedRef.current = false;
+
+    // Check in-memory ref first
+    let data = floorsDataRef.current[currentFloorId];
+    
+    // If not in memory, try localStorage
+    if (!data) {
+        const savedData = localStorage.getItem(`heatmap_floor_data_${currentFloorId}`);
+        if (savedData) {
+            data = JSON.parse(savedData);
+            floorsDataRef.current[currentFloorId] = data; // Cache it
+        }
+    }
+
+    if (data) {
+        // Restore state
+        setBackgroundImage(data.backgroundImage);
+        setImageOpacity(data.imageOpacity);
+        setScale(data.scale);
+        // Load editor data
+        editorRef.current.loadData(data);
+    } else {
+        // New/Empty Floor or Reset
+        setBackgroundImage(null);
+        setImageOpacity(0.5);
+        setScale(1);
+        editorRef.current.loadData({
+            walls: [],
+            aps: [],
+            doors: [],
+            pixelsPerMeter: DEFAULT_PIXELS_PER_METER
+        });
+    }
+
+    // Mark as loaded ONLY after attempting load
+    isDataLoadedRef.current = true;
+  };
+
+  // 2. Load Floor Data when Floor ID changes (or after initial load)
+  useEffect(() => {
+    if (!isLoaded) return;
+    loadFloorData();
+    
+    // Save current active floor ID
+    localStorage.setItem('heatmap_current_floor_id', currentFloorId);
+  }, [currentFloorId, isLoaded]);
+
+  // 3. Save Function (Updates Ref & LocalStorage)
+  const saveCurrentFloor = () => {
+    // GUARD: Do not save if editor is not ready or data hasn't been loaded yet
+    // This prevents overwriting data with empty state during hot-reload/remount
+    if (!editorRef.current || !isDataLoadedRef.current) return;
+
+    const data = editorRef.current.getData();
+    
+    const floorState: SavedFloorState = {
+      ...data,
+      backgroundImage,
+      imageOpacity,
+      scale
+    };
+
+    // Update Memory
+    floorsDataRef.current[currentFloorId] = floorState;
+
+    // Update LocalStorage
+    localStorage.setItem(`heatmap_floor_data_${currentFloorId}`, JSON.stringify(floorState));
+  };
+
+  // 4. Auto-Save Interval (Every 2 seconds)
+  useEffect(() => {
+    if (!isLoaded) return;
+    const interval = setInterval(() => {
+        saveCurrentFloor();
+    }, 2000);
+    return () => clearInterval(interval);
+  }, [currentFloorId, backgroundImage, imageOpacity, scale, isLoaded]);
+
+  // 5. Save Floors List whenever it changes
+  useEffect(() => {
+      if (!isLoaded) return;
+      localStorage.setItem('heatmap_floors', JSON.stringify(floors));
+  }, [floors, isLoaded]);
+
+
+  const handleFloorChange = (newFloorId: string) => {
+    if (newFloorId === currentFloorId) return;
+
+    // 1. Save current floor (Sync)
+    saveCurrentFloor();
+
+    // 2. Switch ID (Triggers useEffect to load new data)
+    setCurrentFloorId(newFloorId);
+  };
+
+  const updateFloorNames = (currentFloors: Floor[]) => {
+      return currentFloors.map((floor, index) => ({
+          ...floor,
+          name: `Floor ${index + 1}`
+      }));
+  };
+
+  const handleAddFloor = () => {
+    const newId = `floor-${Date.now()}`; 
+    // Just add to end, renaming handles the numbers
+    const newFloors = [...floors, { id: newId, name: 'Temp' }];
+    const reordered = updateFloorNames(newFloors);
+    
+    setFloors(reordered);
+    handleFloorChange(newId);
+  };
+
+  const handleDeleteFloor = (id: string) => {
+    if (floors.length <= 1) return; 
+
+    const remainingFloors = floors.filter(f => f.id !== id);
+    const reordered = updateFloorNames(remainingFloors);
+    setFloors(reordered);
+
+    // If we deleted the current floor, switch to the first available one
+    if (id === currentFloorId) {
+        handleFloorChange(reordered[0].id);
+    }
+
+    // Cleanup storage
+    delete floorsDataRef.current[id];
+    localStorage.removeItem(`heatmap_floor_data_${id}`);
+  };
+
+  const handleReorderFloors = (dragIndex: number, hoverIndex: number) => {
+      const newFloors = [...floors];
+      const [draggedItem] = newFloors.splice(dragIndex, 1);
+      newFloors.splice(hoverIndex, 0, draggedItem);
+      
+      const reordered = updateFloorNames(newFloors);
+      setFloors(reordered);
+  };
+
 
   const handleDelete = () => {
     editorRef.current?.deleteSelected();
@@ -47,6 +230,13 @@ export default function Home() {
         selectedEntity={selectedEntity?.type || null}
         showAntenna={showAntenna}
         onToggleAntenna={() => setShowAntenna(!showAntenna)}
+        
+        floors={floors}
+        currentFloorId={currentFloorId}
+        onFloorChange={handleFloorChange}
+        onAddFloor={handleAddFloor}
+        onDeleteFloor={handleDeleteFloor}
+        onReorderFloors={handleReorderFloors}
       />
       <div className="flex-1 flex flex-col relative shadow-inner">
         <HeatmapEditor
@@ -54,6 +244,7 @@ export default function Home() {
           activeTool={activeTool}
           selectedMaterial={selectedMaterial}
           scale={scale}
+          onEditorReady={loadFloorData}
           onSelectionChange={(hasSel, entity) => {
             setCanDelete(hasSel);
             setSelectedEntity(entity);

@@ -1,4 +1,4 @@
-import { AccessPoint, Wall, Point, MATERIAL_ATTENUATION, PIXELS_PER_METER, Door } from "@/types";
+import { AccessPoint, Wall, Point, MATERIAL_ATTENUATION, DEFAULT_PIXELS_PER_METER, Door } from "@/types";
 
 // --- Helper Functions ---
 
@@ -59,7 +59,8 @@ export function buildAttenuationGrid(
     doors: Door[],
     width: number,
     height: number,
-    cellSize: number
+    cellSize: number,
+    pixelsPerMeter: number = DEFAULT_PIXELS_PER_METER
 ): Float32Array {
     const cols = Math.ceil(width / cellSize);
     const rows = Math.ceil(height / cellSize);
@@ -78,7 +79,7 @@ export function buildAttenuationGrid(
 
         // Wall properties
         const thicknessPixels = wall.thickness || 12;
-        const thicknessMeters = thicknessPixels / PIXELS_PER_METER;
+        const thicknessMeters = thicknessPixels / pixelsPerMeter;
         
         // STRICT METAL BLOCKING
         // If metal, we set a massive attenuation density that will effectively block signals
@@ -143,6 +144,7 @@ export function buildAttenuationGrid(
 // Aruba AP 315 Constants
 const FREQUENCY_MHZ = 2400; // 2.4 GHz
 const CONSTANT_FSPL = 20 * Math.log10(FREQUENCY_MHZ) - 27.55;
+const PATH_LOSS_EXPONENT = 3.0; // Indoor Office
 
 // Core Propagation Logic (Dijkstra)
 function runDijkstra(
@@ -152,6 +154,7 @@ function runDijkstra(
     cols: number,
     rows: number,
     cellSize: number,
+    pixelsPerMeter: number = DEFAULT_PIXELS_PER_METER,
     maskFn?: (c: number, r: number) => boolean
 ): Float32Array {
     const size = cols * rows;
@@ -179,7 +182,7 @@ function runDijkstra(
     pq.enqueue(startIdx, startSignal);
 
     // Directions (8 neighbors)
-    const stepSizeMeters = cellSize / PIXELS_PER_METER;
+    const stepSizeMeters = cellSize / pixelsPerMeter;
     const diagStepMeters = stepSizeMeters * 1.4142;
     
     const directions = [
@@ -219,9 +222,9 @@ function runDijkstra(
                 const newDist = currentDist + dir.dist;
                 
                 // 2. FSPL Loss for this step (Incremental)
-                // FSPL = 20log10(d) + C
-                // Delta FSPL = 20log10(newDist) - 20log10(currentDist)
-                const fsplLoss = 20 * Math.log10(newDist / currentDist);
+                // FSPL = 10 * n * log10(d) + C
+                // Delta FSPL = 10 * n * log10(newDist) - 10 * n * log10(currentDist)
+                const fsplLoss = (10 * PATH_LOSS_EXPONENT) * Math.log10(newDist / currentDist);
                 
                 // 3. Wall Loss
                 const cellAttenuationDensity = attenuationGrid[newIdx];
@@ -249,22 +252,24 @@ export function propagateWave(
     doors: Door[],
     canvasWidth: number,
     canvasHeight: number,
-    cellSize: number = 5
+    cellSize: number = 5,
+    pixelsPerMeter: number = DEFAULT_PIXELS_PER_METER
 ): Float32Array {
     const cols = Math.ceil(canvasWidth / cellSize);
     const rows = Math.ceil(canvasHeight / cellSize);
     
     // 1. Build Base Attenuation Grid (Metal = Blocking)
-    const baseAttenuationGrid = buildAttenuationGrid(walls, doors, canvasWidth, canvasHeight, cellSize);
+    const baseAttenuationGrid = buildAttenuationGrid(walls, doors, canvasWidth, canvasHeight, cellSize, pixelsPerMeter);
     
     // 2. Main Propagation (Direct + Diffraction)
     const mainSignalGrid = runDijkstra(
         { x: ap.x, y: ap.y },
-        ap.txPower - (20 * Math.log10(0.1) + CONSTANT_FSPL), // Init signal at 0.1m
+        ap.txPower - ((10 * PATH_LOSS_EXPONENT) * Math.log10(0.1) + CONSTANT_FSPL), // Init signal at 0.1m
         baseAttenuationGrid,
         cols,
         rows,
-        cellSize
+        cellSize,
+        pixelsPerMeter
     );
 
     // 3. Reflections (Metal Only)
@@ -291,7 +296,8 @@ export function propagateWave(
             doors, 
             canvasWidth, 
             canvasHeight, 
-            cellSize
+            cellSize,
+            pixelsPerMeter
         );
 
         // D. Determine Valid Side (Source Side)
@@ -300,11 +306,12 @@ export function propagateWave(
         // E. Run Dijkstra for Virtual AP
         const reflectionSignalGrid = runDijkstra(
             virtualAPPos,
-            ap.txPower - (20 * Math.log10(0.1) + CONSTANT_FSPL) - 2.2, // -2.2dB for Metal Reflection (60%)
+            ap.txPower - ((10 * PATH_LOSS_EXPONENT) * Math.log10(0.1) + CONSTANT_FSPL) - 2.2, // -2.2dB for Metal Reflection (60%)
             reflectionAttenuationGrid,
             cols,
             rows,
             cellSize,
+            pixelsPerMeter,
             (c, r) => {
                 // Masking: Only update cells on the SAME side as the real AP
                 const cellX = c * cellSize + cellSize / 2;
@@ -336,11 +343,11 @@ export function propagateWave(
 }
 
 export function getWaveColor(dbm: number): string {
-    // Color Scale: -30dBm (Strong) to -90dBm (Weak)
-    if (dbm > -40) return 'rgba(34, 197, 94, 0.8)'; // Green (Excellent)
-    if (dbm > -55) return 'rgba(132, 204, 22, 0.8)'; // Lime (Good)
-    if (dbm > -65) return 'rgba(234, 179, 8, 0.8)'; // Yellow (Fair)
-    if (dbm > -75) return 'rgba(249, 115, 22, 0.8)'; // Orange (Weak)
-    if (dbm > -85) return 'rgba(239, 68, 68, 0.8)'; // Red (Bad)
-    return 'rgba(239, 68, 68, 0)'; // Transparent
+    // New Standard Heatmap Colors
+    if (dbm > -45) return 'rgba(255, 0, 100, 0.8)'; // Too Hot (Pink/Red)
+    if (dbm > -60) return 'rgba(255, 165, 0, 0.8)'; // Excellent (Orange)
+    if (dbm > -65) return 'rgba(255, 255, 0, 0.8)'; // Good (Yellow)
+    if (dbm > -75) return 'rgba(34, 197, 94, 0.8)'; // Fair (Green)
+    if (dbm > -85) return 'rgba(56, 189, 248, 0.8)'; // Weak (Light Blue)
+    return 'rgba(0, 0, 0, 0)'; // Dead Zone
 }

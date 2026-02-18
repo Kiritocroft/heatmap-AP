@@ -40,12 +40,26 @@ export function ExportDialog({ aps, walls, coverage, frequency, onClose, onExpor
                     <div>
                         <h3 className="font-semibold text-neutral-700 mb-3">Coverage Statistics</h3>
                         <div className="space-y-2">
+                             <div className="flex items-center gap-3">
+                                <div className="w-24 text-sm text-neutral-600">Too Hot</div>
+                                <div className="flex-1 bg-neutral-200 rounded-full h-6 overflow-hidden">
+                                    <div
+                                        className="bg-pink-600 h-full flex items-center justify-end px-2"
+                                        style={{ width: `${Math.max(5, coverage.tooHotPercent)}%` }}
+                                    >
+                                        <span className="text-xs font-bold text-white">
+                                            {coverage.tooHotPercent.toFixed(1)}%
+                                        </span>
+                                    </div>
+                                </div>
+                            </div>
+
                             <div className="flex items-center gap-3">
                                 <div className="w-24 text-sm text-neutral-600">Excellent</div>
                                 <div className="flex-1 bg-neutral-200 rounded-full h-6 overflow-hidden">
                                     <div
-                                        className="bg-green-500 h-full flex items-center justify-end px-2"
-                                        style={{ width: `${coverage.excellentPercent}%` }}
+                                        className="bg-orange-500 h-full flex items-center justify-end px-2"
+                                        style={{ width: `${Math.max(5, coverage.excellentPercent)}%` }}
                                     >
                                         <span className="text-xs font-bold text-white">
                                             {coverage.excellentPercent.toFixed(1)}%
@@ -58,11 +72,25 @@ export function ExportDialog({ aps, walls, coverage, frequency, onClose, onExpor
                                 <div className="w-24 text-sm text-neutral-600">Good</div>
                                 <div className="flex-1 bg-neutral-200 rounded-full h-6 overflow-hidden">
                                     <div
-                                        className="bg-yellow-500 h-full flex items-center justify-end px-2"
-                                        style={{ width: `${coverage.goodPercent}%` }}
+                                        className="bg-yellow-400 h-full flex items-center justify-end px-2"
+                                        style={{ width: `${Math.max(5, coverage.goodPercent)}%` }}
+                                    >
+                                        <span className="text-xs font-bold text-white shadow-sm text-shadow">
+                                            {coverage.goodPercent.toFixed(1)}%
+                                        </span>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div className="flex items-center gap-3">
+                                <div className="w-24 text-sm text-neutral-600">Fair</div>
+                                <div className="flex-1 bg-neutral-200 rounded-full h-6 overflow-hidden">
+                                    <div
+                                        className="bg-green-500 h-full flex items-center justify-end px-2"
+                                        style={{ width: `${Math.max(5, coverage.fairPercent)}%` }}
                                     >
                                         <span className="text-xs font-bold text-white">
-                                            {coverage.goodPercent.toFixed(1)}%
+                                            {coverage.fairPercent.toFixed(1)}%
                                         </span>
                                     </div>
                                 </div>
@@ -72,8 +100,8 @@ export function ExportDialog({ aps, walls, coverage, frequency, onClose, onExpor
                                 <div className="w-24 text-sm text-neutral-600">Weak</div>
                                 <div className="flex-1 bg-neutral-200 rounded-full h-6 overflow-hidden">
                                     <div
-                                        className="bg-orange-500 h-full flex items-center justify-end px-2"
-                                        style={{ width: `${coverage.weakPercent}%` }}
+                                        className="bg-sky-400 h-full flex items-center justify-end px-2"
+                                        style={{ width: `${Math.max(5, coverage.weakPercent)}%` }}
                                     >
                                         <span className="text-xs font-bold text-white">
                                             {coverage.weakPercent.toFixed(1)}%
@@ -83,11 +111,11 @@ export function ExportDialog({ aps, walls, coverage, frequency, onClose, onExpor
                             </div>
 
                             <div className="flex items-center gap-3">
-                                <div className="w-24 text-sm text-neutral-600">No Signal</div>
+                                <div className="w-24 text-sm text-neutral-600">Dead Zone</div>
                                 <div className="flex-1 bg-neutral-200 rounded-full h-6 overflow-hidden">
                                     <div
                                         className="bg-neutral-400 h-full flex items-center justify-end px-2"
-                                        style={{ width: `${coverage.deadPercent}%` }}
+                                        style={{ width: `${Math.max(5, coverage.deadPercent)}%` }}
                                     >
                                         <span className="text-xs font-bold text-white">
                                             {coverage.deadPercent.toFixed(1)}%
@@ -99,7 +127,7 @@ export function ExportDialog({ aps, walls, coverage, frequency, onClose, onExpor
 
                         <div className="mt-4 p-3 bg-blue-50 rounded-lg">
                             <div className="text-sm font-semibold text-blue-900">
-                                Total Usable Coverage: {(coverage.excellentPercent + coverage.goodPercent).toFixed(1)}%
+                                Total Usable Coverage: {(coverage.tooHotPercent + coverage.excellentPercent + coverage.goodPercent + coverage.fairPercent).toFixed(1)}%
                             </div>
                         </div>
                     </div>
