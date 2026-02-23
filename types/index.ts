@@ -28,6 +28,11 @@ export interface AccessPoint extends Point {
   txPower: number; // Default: 20 dBm (Aruba AP 315 Standard)
   channel: number;
   color: string;
+  // Directional Antenna Properties
+  isDirectional?: boolean; // If false, Omni-directional (default)
+  azimuth?: number; // 0-360 degrees (0 = North/Up)
+  beamwidth?: number; // 30-360 degrees (Horizontal Beamwidth)
+  frontToBackRatio?: number; // dB (Attenuation for back lobe)
 }
 
 export interface Device extends Point {

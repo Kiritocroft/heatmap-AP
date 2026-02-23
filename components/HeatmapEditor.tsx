@@ -3,7 +3,7 @@
 import React, { useRef, useEffect, useState, useImperativeHandle, forwardRef } from 'react';
 import { cn } from '@/lib/utils';
 import { Point, Wall, AccessPoint, WallMaterial, DEFAULT_PIXELS_PER_METER, Door, Device, MATERIAL_ATTENUATION } from '@/types';
-import { Trash2, Smartphone, Laptop } from 'lucide-react';
+import { Trash2, Smartphone, Laptop, X } from 'lucide-react';
 // import { propagateWave, getWaveColor } from '@/utils/waveEngine'; // REMOVED: Moved to Worker
 
 interface HeatmapEditorProps {
@@ -286,6 +286,27 @@ export const HeatmapEditor = forwardRef<HeatmapEditorRef, HeatmapEditorProps>(({
         return () => window.removeEventListener('resize', handleResize);
     }, []);
 
+    // Handle Escape Key to Deselect
+    useEffect(() => {
+        const handleKeyDown = (e: KeyboardEvent) => {
+            if (e.key === 'Escape') {
+                if (isDrawingWall) {
+                    setIsDrawingWall(false);
+                    setWallStart(null);
+                } else if (selectedEntity) {
+                    setSelectedEntity(null);
+                    onSelectionChange(false, null);
+                } else if (showScaleInput) {
+                    setShowScaleInput(false);
+                    setPendingScalePixels(null);
+                }
+            }
+        };
+
+        window.addEventListener('keydown', handleKeyDown);
+        return () => window.removeEventListener('keydown', handleKeyDown);
+    }, [isDrawingWall, selectedEntity, showScaleInput, onSelectionChange]);
+
     // Compute Heatmap Cache using Web Worker
     // Lifecycle Management: Initialize Worker ONCE on mount
     useEffect(() => {
@@ -359,10 +380,21 @@ export const HeatmapEditor = forwardRef<HeatmapEditorRef, HeatmapEditorProps>(({
             return;
         }
 
+        // --- Single AP View Mode Logic ---
+        // If an AP is selected, we only send that AP to the worker.
+        // This makes the heatmap show ONLY the signal for the selected AP.
+        let apsToProcess = aps;
+        if (selectedEntity?.type === 'ap') {
+            const selectedAp = aps.find(a => a.id === selectedEntity.id);
+            if (selectedAp) {
+                apsToProcess = [selectedAp];
+            }
+        }
+
         // Post message to worker (Worker is already warm and waiting)
         worker.postMessage({
             id: currentId,
-            aps,
+            aps: apsToProcess,
             walls,
             doors,
             width: SIM_WIDTH,
@@ -371,7 +403,7 @@ export const HeatmapEditor = forwardRef<HeatmapEditorRef, HeatmapEditorProps>(({
             pixelsPerMeter // Pass dynamic scale
         });
         
-    }, [walls, aps, doors, draggedApId, pixelsPerMeter]);
+    }, [walls, aps, doors, draggedApId, pixelsPerMeter, selectedEntity]);
 
 
     const getUserPos = (e: React.MouseEvent): Point => {
@@ -508,8 +540,9 @@ export const HeatmapEditor = forwardRef<HeatmapEditorRef, HeatmapEditorProps>(({
                 return;
             }
 
-            setSelectedEntity(null);
-            onSelectionChange(false, null);
+            // Sticky Selection: Clicking empty space does NOT deselect
+            // setSelectedEntity(null);
+            // onSelectionChange(false, null);
             
             // Start Panning if no entity clicked
             setIsPanning(true);
@@ -754,9 +787,35 @@ export const HeatmapEditor = forwardRef<HeatmapEditorRef, HeatmapEditorProps>(({
                             const minDist = minDistGridRef.current ? minDistGridRef.current[idx] : 0;
                             const [R, G, B, A_BASE] = getPixelColor(val);
                             
-                            // Wave Animation
-                            const wave = Math.sin(minDist * 0.3 - timeRef.current * 0.5);
-                            const alphaMod = 1 + wave * 0.15;
+                            // Multi-Source Wave Interference Animation
+                            // "Baku Tabrak" Effect: Summing waves from all APs to create interference patterns
+                            let waveSum = 0;
+                            const worldX = c * GRID_SIZE;
+                            const worldY = r * GRID_SIZE;
+
+                            // Optimization: Unroll loop for small number of APs or use simple for loop
+                            // We use Euclidean distance for the wave PHASE (visual rings),
+                            // but the Amplitude is controlled by the SignalGrid (which respects walls).
+                            // This creates a realistic-looking interference pattern that fades correctly behind obstacles.
+                            for (let i = 0; i < aps.length; i++) {
+                                const ap = aps[i];
+                                const dx = worldX - ap.x;
+                                const dy = worldY - ap.y;
+                                // Fast distance approximation (or just standard hypot)
+                                const dist = Math.sqrt(dx*dx + dy*dy) / pixelsPerMeter;
+                                
+                                // Wave Function: sin(k*r - w*t)
+                                // k = 2.5 (Wave density), w = 3 (Speed)
+                                waveSum += Math.sin(dist * 2.5 - timeRef.current * 3.0);
+                            }
+
+                            // Normalize wave sum to keep it within reasonable bounds (-1 to 1 range roughly)
+                            // We dampen it slightly so it doesn't overwhelm the heatmap colors
+                            const normalizedWave = waveSum / (Math.sqrt(aps.length) || 1);
+                            
+                            // Combine with base alpha
+                            // We map the wave (-1 to 1) to an alpha modifier (0.85 to 1.15)
+                            const alphaMod = 0.9 + normalizedWave * 0.15;
                             const finalAlpha = Math.max(0, Math.min(255, A_BASE * alphaMod));
 
                             data[pixelIdx] = R;
@@ -967,14 +1026,70 @@ export const HeatmapEditor = forwardRef<HeatmapEditorRef, HeatmapEditorProps>(({
 
             aps.forEach(ap => {
                 const isSelected = selectedEntity?.id === ap.id;
+                const isAnyApSelected = selectedEntity?.type === 'ap';
+                
+                // Dimming Effect: If any AP is selected but not this one, reduce opacity
+                // This keeps focus on the selected AP's icon
+                const opacity = (isAnyApSelected && !isSelected) ? 0.3 : 1.0;
+                ctx.globalAlpha = opacity;
+
                 if (isSelected) {
+                    // --- Focus Mode Visuals ---
+                    
+                    // 1. Distance Rings (Every 5m, Enhanced Visibility)
+                    const ringStep = 5 * pixelsPerMeter;
+                    const maxRings = 4; // Up to 20m
+                    
+                    // Rings
+                    ctx.strokeStyle = 'rgba(255, 255, 255, 0.5)'; // White, semi-transparent
+                    ctx.lineWidth = 1.5;
+                    ctx.setLineDash([5, 5]);
+                    
+                    for(let i=1; i<=maxRings; i++) {
+                        const r = i * ringStep;
+                        ctx.beginPath();
+                        ctx.arc(ap.x, ap.y, r, 0, Math.PI * 2);
+                        ctx.stroke();
+                        
+                        // Label Background
+                        const labelText = `${i*5}m`;
+                        ctx.font = 'bold 10px sans-serif';
+                        const metrics = ctx.measureText(labelText);
+                        const bgW = metrics.width + 6;
+                        const bgH = 14;
+                        
+                        ctx.save();
+                        ctx.translate(ap.x, ap.y - r - 2);
+                        
+                        // Label Box
+                        ctx.fillStyle = 'rgba(0, 0, 0, 0.6)';
+                        ctx.fillRect(-bgW/2, -bgH, bgW, bgH);
+                        
+                        // Label Text
+                        ctx.fillStyle = '#fff';
+                        ctx.textAlign = 'center';
+                        ctx.textBaseline = 'bottom';
+                        ctx.fillText(labelText, 0, -2);
+                        
+                        ctx.restore();
+                    }
+                    ctx.setLineDash([]);
+
+                    // Selection Halo
                     ctx.beginPath(); ctx.arc(ap.x, ap.y, 22, 0, Math.PI * 2);
                     ctx.strokeStyle = '#3b82f6'; ctx.lineWidth = 2; ctx.setLineDash([4, 2]); ctx.stroke(); ctx.setLineDash([]);
                 }
+                
+                // Draw AP Body
                 const bx = ap.x - 13, by = ap.y - 5;
                 ctx.beginPath(); ctx.roundRect(bx, by, 26, 10, 2); ctx.fillStyle = '#f5f5f5'; ctx.fill();
                 ctx.strokeStyle = '#525252'; ctx.lineWidth = 1.5; ctx.stroke();
+                
+                // LED Status
                 ctx.fillStyle = '#22c55e'; ctx.beginPath(); ctx.arc(ap.x + 8, ap.y, 1, 0, Math.PI * 2); ctx.fill();
+                
+                // Reset Alpha
+                ctx.globalAlpha = 1.0;
             });
 
             // Draw Devices
@@ -1184,7 +1299,10 @@ export const HeatmapEditor = forwardRef<HeatmapEditorRef, HeatmapEditorProps>(({
                 }}
                 onMouseDown={(e) => e.stopPropagation()} 
             >
-                <div className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">Edit Wall</div>
+                <div className="flex items-center justify-between mb-1">
+                    <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Edit Wall</span>
+                    <button onClick={() => { setSelectedEntity(null); onSelectionChange(false, null); }} className="text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-full p-0.5"><X size={12} /></button>
+                </div>
                 <select 
                     className="text-xs p-1.5 border border-slate-200 rounded bg-white/50 w-full outline-none focus:ring-1 focus:ring-blue-500"
                     value={walls.find(w => w.id === selectedEntity.id)?.material}
@@ -1230,7 +1348,10 @@ export const HeatmapEditor = forwardRef<HeatmapEditorRef, HeatmapEditorProps>(({
                 }}
                 onMouseDown={(e) => e.stopPropagation()} 
             >
-                <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Edit Access Point</div>
+                <div className="flex items-center justify-between mb-1">
+                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Edit Access Point</span>
+                    <button onClick={() => { setSelectedEntity(null); onSelectionChange(false, null); }} className="text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-full p-0.5"><X size={12} /></button>
+                </div>
                 
                 {/* Channel Selector */}
                 <div className="flex items-center justify-between gap-2">
@@ -1285,9 +1406,8 @@ export const HeatmapEditor = forwardRef<HeatmapEditorRef, HeatmapEditorProps>(({
                         setAps(prev => prev.filter(a => a.id !== selectedEntity.id));
                         setSelectedEntity(null);
                         onSelectionChange(false, null);
-                        setDraggedApId(null);
                     }}
-                    className="text-xs flex items-center justify-center gap-1 text-red-500 hover:bg-red-50 p-1.5 rounded transition-colors mt-1"
+                    className="mt-2 text-xs flex items-center justify-center gap-1 text-red-500 hover:bg-red-50 p-1.5 rounded transition-colors w-full border border-red-100"
                 >
                     <Trash2 size={12} /> Delete AP
                 </button>
@@ -1306,7 +1426,10 @@ export const HeatmapEditor = forwardRef<HeatmapEditorRef, HeatmapEditorProps>(({
                 }}
                 onMouseDown={(e) => e.stopPropagation()} 
             >
-                <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Edit Device</div>
+                <div className="flex items-center justify-between mb-1">
+                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Edit Device</span>
+                    <button onClick={() => { setSelectedEntity(null); onSelectionChange(false, null); }} className="text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-full p-0.5"><X size={12} /></button>
+                </div>
                 
                 <div className="flex flex-col gap-2">
                     <input

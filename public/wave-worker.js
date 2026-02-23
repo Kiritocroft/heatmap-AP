@@ -5,12 +5,12 @@
 const DEFAULT_PIXELS_PER_METER = 40;
 
 const MATERIAL_ATTENUATION = {
-    glass: 3,   // Transparent to RF, slightly reflective
-    drywall: 4, // Typical interior wall
-    wood: 6,    // Door/Cabinet
-    brick: 10,  // Light masonry
-    concrete: 15, // Structural
-    metal: 40,  // Elevators/Server Racks (Blocks signal)
+    glass: 3,     // Transparent to RF, slightly reflective
+    drywall: 5,   // Typical interior wall (Increased for realism)
+    wood: 8,      // Door/Cabinet (Increased)
+    brick: 20,    // Light masonry (Double standard value to force shadow)
+    concrete: 35, // Structural (Significantly increased to prevent bleed-through)
+    metal: 80,    // Elevators/Server Racks (Total Blockage)
 };
 
 // --- Helper Functions ---
@@ -111,7 +111,7 @@ class PriorityQueue {
     }
 }
 
-// Build attenuation density grid (dB per meter)
+// Build attenuation density grid (dB per meter) with Conservative Rasterization
 function buildAttenuationGrid(walls, doors, width, height, cellSize, pixelsPerMeter) {
     const cols = Math.ceil(width / cellSize);
     const rows = Math.ceil(height / cellSize);
@@ -126,23 +126,30 @@ function buildAttenuationGrid(walls, doors, width, height, cellSize, pixelsPerMe
         const y2 = wall.end.y;
 
         const wallLength = Math.hypot(x2 - x1, y2 - y1);
-        const steps = Math.ceil(wallLength / (cellSize / 2));
+        // Oversample steps to prevent gaps (0.25 of cell size)
+        const steps = Math.ceil(wallLength / (cellSize / 4));
 
         const thicknessPixels = wall.thickness || 12;
         const thicknessMeters = thicknessPixels / pixelsPerMeter;
         
-        const isMetal = wall.material === 'metal';
-        let attenuationDensity = 0;
+        // Calculate Attenuation Density (dB/m)
+        // For thin walls in grid, we boost the density to ensure minimum penalty
+        const totalAttenuation = MATERIAL_ATTENUATION[wall.material] || 0;
+        let attenuationDensity = totalAttenuation / thicknessMeters;
 
-        if (isMetal) {
-            attenuationDensity = 2000; 
-        } else {
-            const totalAttenuation = MATERIAL_ATTENUATION[wall.material] || 0;
-            attenuationDensity = totalAttenuation / thicknessMeters;
+        // ENTERPRISE FIX: Ensure high-loss materials act as solid barriers
+        // If material is concrete/brick/metal, apply a minimum density multiplier
+        // This compensates for "grid skipping" or partial cell coverage
+        if (['concrete', 'brick', 'metal'].includes(wall.material)) {
+            attenuationDensity *= 2.0; 
         }
 
-        const thicknessInCells = Math.max(1, Math.ceil(thicknessPixels / cellSize));
-        
+        // Determine drawing radius based on thickness
+        // Always ensure at least 1 cell radius (3x3 block) for solid walls to prevent diagonal leakage
+        const minThicknessCells = ['concrete', 'brick', 'metal'].includes(wall.material) ? 1.5 : 0.5;
+        const thicknessInCells = Math.max(minThicknessCells * 2, thicknessPixels / cellSize);
+        const radius = Math.ceil(thicknessInCells / 2);
+
         for (let i = 0; i <= steps; i++) {
             const t = i / steps;
             const x = x1 + (x2 - x1) * t;
@@ -151,14 +158,13 @@ function buildAttenuationGrid(walls, doors, width, height, cellSize, pixelsPerMe
             const baseCol = Math.floor(x / cellSize);
             const baseRow = Math.floor(y / cellSize);
 
+            // Door Logic
             const wallDoors = doors.filter(d => d.wallId === wall.id);
             let isGap = false;
-
             for (const door of wallDoors) {
                 const doorPos = door.ratio * wallLength;
                 const distAlongWall = t * wallLength;
                 const halfWidth = door.width / 2;
-
                 if (distAlongWall >= (doorPos - halfWidth) && distAlongWall <= (doorPos + halfWidth)) {
                     isGap = true;
                     break;
@@ -166,7 +172,7 @@ function buildAttenuationGrid(walls, doors, width, height, cellSize, pixelsPerMe
             }
 
             if (!isGap) {
-                const radius = Math.floor(thicknessInCells / 2);
+                // Draw a solid block around the point
                 for (let dr = -radius; dr <= radius; dr++) {
                     for (let dc = -radius; dc <= radius; dc++) {
                         const r = baseRow + dr;
@@ -174,6 +180,7 @@ function buildAttenuationGrid(walls, doors, width, height, cellSize, pixelsPerMe
 
                         if (r >= 0 && r < rows && c >= 0 && c < cols) {
                             const idx = r * cols + c;
+                            // Use MAX to keep the strongest barrier
                             grid[idx] = Math.max(grid[idx], attenuationDensity);
                         }
                     }
@@ -188,7 +195,7 @@ function buildAttenuationGrid(walls, doors, width, height, cellSize, pixelsPerMe
 const FREQUENCY_MHZ = 5000; // 5GHz (Enterprise Standard)
 const CONSTANT_FSPL = 20 * Math.log10(FREQUENCY_MHZ) - 27.55;
 
-function runDijkstra(startPoint, startSignal, attenuationGrid, cols, rows, cellSize, pixelsPerMeter, maskFn) {
+function runDijkstra(startPoint, startSignal, attenuationGrid, cols, rows, cellSize, pixelsPerMeter, maskFn, antennaProps = {}) {
     const size = cols * rows;
     const signalGrid = new Float32Array(size);
     const distGrid = new Float32Array(size); // Store distances for animation
@@ -208,7 +215,7 @@ function runDijkstra(startPoint, startSignal, attenuationGrid, cols, rows, cellS
     const pq = new PriorityQueue();
     
     // State now tracks MINIMUM TOTAL LOSS (Signal Strength Inverted)
-    // We want to minimize (FSPL + WallLoss) => Maximize Signal
+    // We want to minimize (FSPL + WallLoss + DirectionalLoss) => Maximize Signal
     const totalLossState = new Float32Array(size);
     totalLossState.fill(Infinity);
     
@@ -240,12 +247,34 @@ function runDijkstra(startPoint, startSignal, attenuationGrid, cols, rows, cellS
         { dr: 1, dc: 1, dist: diagStepMeters },
     ];
 
+    // Pre-calculate Antenna properties if directional
+    const isDirectional = antennaProps.isDirectional;
+    // Normalize azimuth to 0-360, then convert to radians. 
+    // 0 deg = North (Up) -> -PI/2 in math atan2 (which is usually East=0)
+    // Actually, in screen coords: 
+    // 0 deg (Up) = -Y direction.
+    // 90 deg (Right) = +X direction.
+    // 180 deg (Down) = +Y direction.
+    // 270 deg (Left) = -X direction.
+    // atan2(y, x) returns: East=0, South=PI/2, West=PI, North=-PI/2
+    // So to match 0=North, we need to adjust.
+    // Let's stick to standard math angle for calculation: 
+    // Target Angle = atan2(dy, dx)
+    // Azimuth (User Input 0=N, 90=E) needs conversion to Math Angle.
+    // 0(N) -> -PI/2
+    // 90(E) -> 0
+    // 180(S) -> PI/2
+    // 270(W) -> PI
+    // Formula: MathAngle = (Azimuth - 90) * PI / 180
+    const azimuthRad = ((antennaProps.azimuth || 0) - 90) * (Math.PI / 180);
+    const halfBeamRad = ((antennaProps.beamwidth || 360) / 2) * (Math.PI / 180);
+    const frontToBackRatio = antennaProps.frontToBackRatio || 20; // dB
+
     while (!pq.isEmpty()) {
         const currentIdx = pq.dequeue();
         const currentTotalLoss = totalLossState[currentIdx];
         
         // If we found a better path to this node already, skip
-        // Note: Floating point comparison, use epsilon if needed, but < check is usually fine
         if (currentTotalLoss > totalLossState[currentIdx]) continue;
 
         const currentWallLoss = wallLossState[currentIdx];
@@ -275,18 +304,11 @@ function runDijkstra(startPoint, startSignal, attenuationGrid, cols, rows, cellS
                 // Calculate new Total Loss
                 const safeDist = Math.max(0.1, newDist);
                 
-                // Hybrid Distance Calculation for Visual Realism (Circle vs Octagon)
-                // If the path distance is very close to Euclidean distance (Line of Sight),
-                // use Euclidean distance to ensure perfect circles in open space.
-                // Otherwise (diffraction/bending), use the accumulated path distance.
-                
+                // Hybrid Distance Calculation for Visual Realism
                 const dx = (nc * cellSize + cellSize/2) - startPoint.x;
                 const dy = (nr * cellSize + cellSize/2) - startPoint.y;
                 const directDist = Math.sqrt(dx*dx + dy*dy) / pixelsPerMeter;
                 
-                // Ratio of Path / Direct. 
-                // Grid path (Chebyshev/Octagonal) is at most ~1.08x longer than Euclidean in 8-way grid.
-                // If ratio is small, we are likely in Line-Of-Sight.
                 const ratio = (newDist / Math.max(0.01, directDist));
                 
                 let effectiveDist = newDist;
@@ -294,14 +316,26 @@ function runDijkstra(startPoint, startSignal, attenuationGrid, cols, rows, cellS
                     effectiveDist = directDist;
                 }
 
-                // FSPL = 20log10(d) + 20log10(f) + K
-                // Refactored to Log-Distance Path Loss Model for High Density (n = 3.5)
-                // PL = PL0 + 10 * n * log10(d)
-                // n = 3.5 (Indoor Office / Obstacles) -> 10 * 3.5 = 35
-                // PL0 = CONSTANT_FSPL (Loss at 1m, approx 40dB for 2.4GHz)
+                // FSPL Calculation
                 const PATH_LOSS_EXPONENT = 3.5;
-                const fsplLoss = (10 * PATH_LOSS_EXPONENT) * Math.log10(Math.max(0.1, effectiveDist)) + CONSTANT_FSPL; 
+                let fsplLoss = (10 * PATH_LOSS_EXPONENT) * Math.log10(Math.max(0.1, effectiveDist)) + CONSTANT_FSPL; 
                 
+                // --- DIRECTIONAL ANTENNA LOGIC ---
+                if (isDirectional) {
+                    const angleToTarget = Math.atan2(dy, dx); // -PI to PI
+                    
+                    // Calculate smallest difference between angles
+                    let angleDiff = Math.abs(angleToTarget - azimuthRad);
+                    if (angleDiff > Math.PI) angleDiff = 2 * Math.PI - angleDiff;
+                    
+                    if (angleDiff > halfBeamRad) {
+                        // Outside beamwidth -> Apply attenuation
+                        // Simple step function for now, or linear roll-off
+                        // For Enterprise accuracy, we should use a specific pattern, but step + slight slope is okay for general sim
+                        fsplLoss += frontToBackRatio; 
+                    }
+                }
+
                 const newTotalLoss = fsplLoss + newWallLoss;
 
                 if (newTotalLoss < totalLossState[newIdx]) {
@@ -337,16 +371,22 @@ function propagateWave(ap, walls, doors, canvasWidth, canvasHeight, cellSize = 1
         cols,
         rows,
         cellSize,
-        pixelsPerMeter
+        pixelsPerMeter,
+        null,
+        // Pass Antenna Props
+        {
+            isDirectional: ap.isDirectional,
+            azimuth: ap.azimuth,
+            beamwidth: ap.beamwidth,
+            frontToBackRatio: ap.frontToBackRatio
+        }
     );
 
     const metalWalls = walls.filter(w => w.material === 'metal');
     
     if (metalWalls.length > 0) {
         // Optimization: Sort metal walls by distance to AP and limit reflections
-        // This prevents exponential slowdown if user draws many metal segments
         const sortedMetalWalls = metalWalls.map(w => {
-            // Distance from AP to line segment
             const A = w.start.x - ap.x;
             const B = w.start.y - ap.y;
             const C = w.end.x - w.start.x;
@@ -372,16 +412,12 @@ function propagateWave(ap, walls, doors, canvasWidth, canvasHeight, cellSize = 1
             return { wall: w, distSq: dx * dx + dy * dy };
         }).sort((a, b) => a.distSq - b.distSq);
 
-        // Limit to 6 closest metal walls for reflection calculations
         const MAX_REFLECTIONS = 6;
         const wallsToProcess = sortedMetalWalls.slice(0, MAX_REFLECTIONS).map(item => item.wall);
 
         for (const wall of wallsToProcess) {
             const virtualAPPos = mirrorPointAcrossLine({ x: ap.x, y: ap.y }, wall.start, wall.end);
             
-            // Rebuilding attenuation grid is costly but necessary for correct reflection masking
-            // Optimization: If we have many walls, we could clone the base grid and just "erase" the metal wall
-            // But for now, with GRID_SIZE=10, rebuilding is acceptable.
             const reflectionAttenuationGrid = buildAttenuationGrid(
                 walls.filter(w => w.id !== wall.id), 
                 doors, 
@@ -404,16 +440,20 @@ function propagateWave(ap, walls, doors, canvasWidth, canvasHeight, cellSize = 1
                 (c, r) => {
                     const x = c * cellSize;
                     const y = r * cellSize;
-                    // Only allow reflection on the SAME side as the AP
                     return getSideOfLine(wall.start, wall.end, { x, y }) === apSide;
-                }
+                },
+                // Reflections generally inherit directional properties but mirrored
+                // For simplicity, we assume reflections are "diffused" enough or just treat as Omni for now
+                // implementing directional reflection is complex (virtual AP needs mirrored azimuth).
+                // Let's keep reflections simple (Omni) or just skip directional logic for them to avoid confusion.
+                // Or better: pass isDirectional: false to force Omni reflection (safe bet).
+                { isDirectional: false } 
             );
 
-            // Merge Reflection
             for (let i = 0; i < mainSignalGrid.length; i++) {
                 if (reflectionSignalGrid[i] > mainSignalGrid[i]) {
                     mainSignalGrid[i] = reflectionSignalGrid[i];
-                    mainDistGrid[i] = reflectionDistGrid[i]; // Update distance for wave animation
+                    mainDistGrid[i] = reflectionDistGrid[i];
                 }
             }
         }
@@ -454,23 +494,111 @@ function computeCompositeHeatmap(aps, walls, doors, width, height, cellSize, pix
     };
 }
 
+// --- Caching Variables ---
+const apCache = new Map(); // Key: apId, Value: { hash: string, signalGrid: Float32Array, distGrid: Float32Array }
+let lastEnvironmentHash = "";
+
+// Helper to create a simple hash for environment (walls, doors, dimensions)
+function getEnvironmentHash(walls, doors, width, height, cellSize, pixelsPerMeter) {
+    return JSON.stringify({ 
+        w: walls.length, 
+        d: doors.length, 
+        dim: [width, height, cellSize, pixelsPerMeter],
+        // Sample first/last elements to catch changes without full deep stringify if possible, 
+        // but for safety full stringify is better or a custom lighter hash.
+        // Given the complexity, full stringify of critical props is safest for now.
+        // Optimization: We can rely on React's immutability if passed props change ref, 
+        // but worker receives copies. Let's use JSON.stringify for now, it's fast enough for these array sizes.
+        walls: walls.map(w => [w.id, w.start, w.end, w.material, w.thickness]),
+        doors: doors.map(d => [d.id, d.wallId, d.ratio, d.width])
+    });
+}
+
+// Helper to create hash for AP properties
+function getApHash(ap) {
+    return JSON.stringify({
+        x: ap.x,
+        y: ap.y,
+        p: ap.txPower,
+        dir: ap.isDirectional,
+        az: ap.azimuth,
+        bw: ap.beamwidth,
+        fb: ap.frontToBackRatio
+    });
+}
+
 self.onmessage = (e) => {
     const data = e.data;
 
     if (data.type === 'WARMUP') {
-        // Run a tiny dummy simulation to force JIT compilation of the heavy functions
+        // Run a tiny dummy simulation to force JIT compilation
         const dummyAp = { x: 0, y: 0, txPower: 18 };
-        const dummyWalls = [];
-        const dummyDoors = [];
-        // Small 10x10 grid
-        computeCompositeHeatmap([dummyAp], dummyWalls, dummyDoors, 100, 100, 10, DEFAULT_PIXELS_PER_METER);
+        computeCompositeHeatmap([dummyAp], [], [], 100, 100, 10, DEFAULT_PIXELS_PER_METER);
         return;
     }
 
     const { id, aps, walls, doors, width, height, cellSize, pixelsPerMeter } = data;
 
-    const result = computeCompositeHeatmap(aps, walls, doors, width, height, cellSize, pixelsPerMeter);
+    // 1. Check Environment Cache
+    const currentEnvHash = getEnvironmentHash(walls, doors, width, height, cellSize, pixelsPerMeter);
     
+    if (currentEnvHash !== lastEnvironmentHash) {
+        // Environment changed (walls moved, added, etc) -> INVALIDATE ALL CACHE
+        apCache.clear();
+        lastEnvironmentHash = currentEnvHash;
+    }
+
+    // 2. Prepare Final Grids
+    const cols = Math.ceil(width / cellSize);
+    const rows = Math.ceil(height / cellSize);
+    const size = cols * rows;
+    
+    const finalSignalGrid = new Float32Array(size);
+    const finalMinDistGrid = new Float32Array(size);
+    
+    finalSignalGrid.fill(-120);
+    finalMinDistGrid.fill(Infinity);
+
+    // 3. Process each requested AP (using Cache if available)
+    if (aps && aps.length > 0) {
+        aps.forEach(ap => {
+            const apHash = getApHash(ap);
+            let cached = apCache.get(ap.id);
+
+            // Check if cache exists and is valid (properties match)
+            if (!cached || cached.hash !== apHash) {
+                // Cache Miss or Stale -> Calculate
+                const { signalGrid, distGrid } = propagateWave(ap, walls, doors, width, height, cellSize, pixelsPerMeter);
+                
+                // Save to Cache
+                cached = {
+                    hash: apHash,
+                    signalGrid,
+                    distGrid
+                };
+                apCache.set(ap.id, cached);
+            }
+
+            // Merge into Final Grid (Max Composition)
+            const apSignal = cached.signalGrid;
+            const apDist = cached.distGrid;
+
+            // Using loop unrolling or typed array methods could be faster, but simple loop is fine for now
+            for (let i = 0; i < size; i++) {
+                if (apSignal[i] > finalSignalGrid[i]) {
+                    finalSignalGrid[i] = apSignal[i];
+                    finalMinDistGrid[i] = apDist[i];
+                }
+            }
+        });
+    }
+
     // Return ID to validate request freshness
-    self.postMessage({ ...result, id });
+    self.postMessage({ 
+        signalGrid: finalSignalGrid, 
+        minDistGrid: finalMinDistGrid,
+        rows, 
+        cols, 
+        id 
+    });
 };
