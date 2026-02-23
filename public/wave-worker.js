@@ -5,12 +5,12 @@
 const DEFAULT_PIXELS_PER_METER = 40;
 
 const MATERIAL_ATTENUATION = {
-    glass: 3,     // Transparent to RF, slightly reflective
-    drywall: 5,   // Typical interior wall (Increased for realism)
-    wood: 8,      // Door/Cabinet (Increased)
-    brick: 20,    // Light masonry (Double standard value to force shadow)
-    concrete: 35, // Structural (Significantly increased to prevent bleed-through)
-    metal: 80,    // Elevators/Server Racks (Total Blockage)
+    glass: 3,     // Transparent to RF, slightly reflective (Standard Office Glass)
+    drywall: 4,   // Typical interior wall (Gypsum/Partition)
+    wood: 6,      // Door/Cabinet (Solid Wood)
+    brick: 10,    // Light masonry/Brick Wall (Standard Red Brick)
+    concrete: 15, // Structural Concrete (Standard Enterprise Value - Heavy Attenuation)
+    metal: 40,    // Elevators/Server Racks (Effective Signal Block)
 };
 
 // --- Helper Functions ---
@@ -133,20 +133,19 @@ function buildAttenuationGrid(walls, doors, width, height, cellSize, pixelsPerMe
         const thicknessMeters = thicknessPixels / pixelsPerMeter;
         
         // Calculate Attenuation Density (dB/m)
-        // For thin walls in grid, we boost the density to ensure minimum penalty
         const totalAttenuation = MATERIAL_ATTENUATION[wall.material] || 0;
         let attenuationDensity = totalAttenuation / thicknessMeters;
 
         // ENTERPRISE FIX: Ensure high-loss materials act as solid barriers
-        // If material is concrete/brick/metal, apply a minimum density multiplier
-        // This compensates for "grid skipping" or partial cell coverage
+        // Use a slight multiplier (1.2x) for heavy materials to compensate for grid averaging
+        // This ensures a 15dB wall actually reduces signal by ~15dB across the cells
         if (['concrete', 'brick', 'metal'].includes(wall.material)) {
-            attenuationDensity *= 2.0; 
+            attenuationDensity *= 1.2; 
         }
 
         // Determine drawing radius based on thickness
         // Always ensure at least 1 cell radius (3x3 block) for solid walls to prevent diagonal leakage
-        const minThicknessCells = ['concrete', 'brick', 'metal'].includes(wall.material) ? 1.5 : 0.5;
+        const minThicknessCells = ['concrete', 'brick', 'metal'].includes(wall.material) ? 1.0 : 0.5;
         const thicknessInCells = Math.max(minThicknessCells * 2, thicknessPixels / cellSize);
         const radius = Math.ceil(thicknessInCells / 2);
 
