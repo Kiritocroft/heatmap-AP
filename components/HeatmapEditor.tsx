@@ -2,7 +2,7 @@
 
 import React, { useRef, useEffect, useState, useImperativeHandle, forwardRef } from 'react';
 import { cn } from '@/lib/utils';
-import { Point, Wall, AccessPoint, WallMaterial, DEFAULT_PIXELS_PER_METER, Door, Device, MATERIAL_ATTENUATION } from '@/types';
+import { Point, Wall, AccessPoint, WallMaterial, DEFAULT_PIXELS_PER_METER, Door, Device, MATERIAL_ATTENUATION, AP_PRESETS } from '@/types';
 import { Trash2, Smartphone, Laptop, X } from 'lucide-react';
 // import { propagateWave, getWaveColor } from '@/utils/waveEngine'; // REMOVED: Moved to Worker
 
@@ -427,13 +427,16 @@ export const HeatmapEditor = forwardRef<HeatmapEditorRef, HeatmapEditorProps>(({
         }
 
         if (activeTool === 'ap') {
+            const defaultModel = AP_PRESETS['aruba-315'];
             const newAp: AccessPoint = {
                 id: crypto.randomUUID(),
                 x: pos.x,
                 y: pos.y,
-                txPower: 20, // 20 dBm (100mW) - Standard Indoor AP
+                txPower: defaultModel.totalEIRP,
                 channel: 6,
                 color: '#34d399',
+                model: 'aruba-315',
+                name: defaultModel.modelName
             };
             setAps(prev => [...prev, newAp]);
             return;
@@ -1339,7 +1342,7 @@ export const HeatmapEditor = forwardRef<HeatmapEditorRef, HeatmapEditorProps>(({
         {/* AP Property Editor */}
         {selectedEntity?.type === 'ap' && popupPos && (
             <div 
-                className="absolute z-50 bg-white/80 backdrop-blur-md rounded-lg shadow-lg border border-slate-200/50 p-2 flex flex-col gap-2 w-52 animate-in fade-in zoom-in duration-200"
+                className="absolute z-50 bg-white/80 backdrop-blur-md rounded-lg shadow-lg border border-slate-200/50 p-2 flex flex-col gap-2 w-56 animate-in fade-in zoom-in duration-200"
                 style={{ 
                     left: popupPos.x, 
                     top: popupPos.y - (80 * scale), // Scale offset
@@ -1351,6 +1354,44 @@ export const HeatmapEditor = forwardRef<HeatmapEditorRef, HeatmapEditorProps>(({
                 <div className="flex items-center justify-between mb-1">
                     <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Edit Access Point</span>
                     <button onClick={() => { setSelectedEntity(null); onSelectionChange(false, null); }} className="text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-full p-0.5"><X size={12} /></button>
+                </div>
+
+                {/* Model Selector */}
+                <div className="flex flex-col gap-1">
+                    <span className="text-[10px] text-slate-500 font-medium">Model</span>
+                    <select 
+                        className="text-xs p-1.5 border border-slate-200 rounded bg-slate-50 outline-none focus:ring-1 focus:ring-blue-500 w-full truncate"
+                        value={aps.find(a => a.id === selectedEntity.id)?.model || 'custom'}
+                        onChange={(e) => {
+                            const newModelKey = e.target.value;
+                            if (newModelKey === 'custom') {
+                                setAps(prev => prev.map(a => a.id === selectedEntity.id ? { 
+                                    ...a, 
+                                    model: 'custom',
+                                    name: 'Custom AP'
+                                } : a));
+                            } else {
+                                const preset = AP_PRESETS[newModelKey];
+                                if (preset) {
+                                    setAps(prev => prev.map(a => a.id === selectedEntity.id ? { 
+                                        ...a, 
+                                        model: newModelKey,
+                                        name: preset.modelName,
+                                        txPower: preset.totalEIRP // Update to preset default
+                                    } : a));
+                                }
+                            }
+                        }}
+                    >
+                        {Object.values(AP_PRESETS)
+                            .filter(p => p.id !== 'custom')
+                            .map(preset => (
+                            <option key={preset.id} value={preset.id}>
+                                {preset.vendor} {preset.modelName}
+                            </option>
+                        ))}
+                        <option value="custom">Custom / Manual</option>
+                    </select>
                 </div>
                 
                 {/* Channel Selector */}
@@ -1384,11 +1425,11 @@ export const HeatmapEditor = forwardRef<HeatmapEditorRef, HeatmapEditorProps>(({
                             type="range"
                             min="1"
                             max="30"
-                            step="1"
+                            step="0.5"
                             className="w-full h-1.5 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-blue-600"
                             value={aps.find(a => a.id === selectedEntity.id)?.txPower || 20}
                             onChange={(e) => {
-                                const newTx = parseInt(e.target.value);
+                                const newTx = parseFloat(e.target.value);
                                 setAps(prev => prev.map(a => a.id === selectedEntity.id ? { ...a, txPower: newTx } : a));
                             }}
                         />

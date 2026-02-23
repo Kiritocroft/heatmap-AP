@@ -25,7 +25,9 @@ export interface Door {
 
 export interface AccessPoint extends Point {
   id: string;
-  txPower: number; // Default: 20 dBm (Aruba AP 315 Standard)
+  name: string; // User-friendly name or Model Name
+  model: string; // Key from AP_PRESETS
+  txPower: number; // EIRP (Tx + Gain) in dBm
   channel: number;
   color: string;
   // Directional Antenna Properties
@@ -34,6 +36,95 @@ export interface AccessPoint extends Point {
   beamwidth?: number; // 30-360 degrees (Horizontal Beamwidth)
   frontToBackRatio?: number; // dB (Attenuation for back lobe)
 }
+
+export interface APModel {
+  id: string;
+  vendor: string;
+  modelName: string;
+  defaultTxPower: number; // Base Radio Power (dBm)
+  antennaGain: number; // Antenna Gain (dBi)
+  totalEIRP: number; // Effective Isotropic Radiated Power (dBm) - This goes to simulation
+}
+
+// Enterprise AP Database - Real World Specs (5GHz Band)
+export const AP_PRESETS: Record<string, APModel> = {
+  'custom': {
+    id: 'custom',
+    vendor: 'Custom',
+    modelName: 'Manual Configuration',
+    defaultTxPower: 20,
+    antennaGain: 0,
+    totalEIRP: 20
+  },
+  // --- ARUBA (HPE) ---
+  'aruba-315': {
+    id: 'aruba-315',
+    vendor: 'Aruba',
+    modelName: 'AP-315 (WiFi 5)',
+    defaultTxPower: 18,
+    antennaGain: 3.5,
+    totalEIRP: 21.5
+  },
+  'aruba-515': {
+    id: 'aruba-515',
+    vendor: 'Aruba',
+    modelName: 'AP-515 (WiFi 6)',
+    defaultTxPower: 21,
+    antennaGain: 4.5,
+    totalEIRP: 25.5
+  },
+  'aruba-635': {
+    id: 'aruba-635',
+    vendor: 'Aruba',
+    modelName: 'AP-635 (WiFi 6E)',
+    defaultTxPower: 22,
+    antennaGain: 5.0,
+    totalEIRP: 27
+  },
+  // --- CISCO ---
+  'cisco-9120': {
+    id: 'cisco-9120',
+    vendor: 'Cisco',
+    modelName: 'Catalyst 9120AX',
+    defaultTxPower: 23,
+    antennaGain: 4,
+    totalEIRP: 27
+  },
+  'meraki-mr46': {
+    id: 'meraki-mr46',
+    vendor: 'Cisco Meraki',
+    modelName: 'MR46 (WiFi 6)',
+    defaultTxPower: 23,
+    antennaGain: 5.4,
+    totalEIRP: 28.4
+  },
+  // --- UBIQUITI ---
+  'unifi-u6-lite': {
+    id: 'unifi-u6-lite',
+    vendor: 'Ubiquiti',
+    modelName: 'UniFi U6 Lite',
+    defaultTxPower: 17,
+    antennaGain: 2.8,
+    totalEIRP: 19.8
+  },
+  'unifi-u6-pro': {
+    id: 'unifi-u6-pro',
+    vendor: 'Ubiquiti',
+    modelName: 'UniFi U6 Pro',
+    defaultTxPower: 22,
+    antennaGain: 4.0,
+    totalEIRP: 26
+  },
+  // --- RUCKUS ---
+  'ruckus-r750': {
+    id: 'ruckus-r750',
+    vendor: 'Ruckus',
+    modelName: 'R750 (High Density)',
+    defaultTxPower: 22,
+    antennaGain: 3, // + BeamFlex gain dynamic
+    totalEIRP: 28 // Effective max
+  }
+};
 
 export interface Device extends Point {
   id: string;
