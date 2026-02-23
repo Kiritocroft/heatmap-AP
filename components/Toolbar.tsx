@@ -1,11 +1,11 @@
 'use client';
 
 import React, { DragEvent } from 'react';
-import { MousePointer2, Pencil, Router, Trash2, ZoomIn, ZoomOut, Save, DoorOpen, Upload, Square, Radio, Ruler, Layers, Plus, GripVertical } from 'lucide-react';
+import { MousePointer2, Pencil, Router, Trash2, ZoomIn, ZoomOut, Save, DoorOpen, Upload, Square, Radio, Ruler, Layers, Plus, GripVertical, RefreshCw, Smartphone } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { WallMaterial } from '@/types';
 
-type ToolType = 'select' | 'wall' | 'ap' | 'door' | 'scale';
+type ToolType = 'select' | 'wall' | 'ap' | 'door' | 'scale' | 'device';
 
 interface ToolbarProps {
     activeTool: ToolType;
@@ -31,6 +31,12 @@ interface ToolbarProps {
     onAddFloor: () => void;
     onDeleteFloor: (id: string) => void;
     onReorderFloors?: (dragIndex: number, hoverIndex: number) => void;
+    
+    // Database Props
+    onSaveToDb: () => void;
+    isSavingToDb: boolean;
+    autoSaveDb: boolean;
+    onToggleAutoSaveDb: () => void;
 }
 
 export function Toolbar({
@@ -40,7 +46,8 @@ export function Toolbar({
     onClearAll, canDelete, onDeleteSelected,
     onUploadImage, imageOpacity, onOpacityChange,
     selectedEntity, showAntenna, onToggleAntenna,
-    floors, currentFloorId, onFloorChange, onAddFloor, onDeleteFloor, onReorderFloors
+    floors, currentFloorId, onFloorChange, onAddFloor, onDeleteFloor, onReorderFloors,
+    onSaveToDb, isSavingToDb, autoSaveDb, onToggleAutoSaveDb
 }: ToolbarProps) {
 
     // --- Drag & Drop ---
@@ -82,6 +89,7 @@ export function Toolbar({
         { id: 'wall', icon: Square, label: 'Draw Wall' },
         { id: 'door', icon: DoorOpen, label: 'Add Door' },
         { id: 'ap', icon: Router, label: 'Add AP' },
+        { id: 'device', icon: Smartphone, label: 'Add Device' },
         { id: 'scale', icon: Ruler, label: 'Set Scale' },
     ] as const;
 
@@ -94,13 +102,7 @@ export function Toolbar({
         { id: 'metal', label: 'Metal (-50dB)' },
     ];
 
-    const [saved, setSaved] = React.useState(false);
-
-    const handleSave = () => {
-        // Autosave is active, just show feedback
-        setSaved(true);
-        setTimeout(() => setSaved(false), 2000);
-    };
+    // const [saved, setSaved] = React.useState(false);
 
     return (
         <div className="w-72 bg-white border-r border-neutral-200 flex flex-col h-full shadow-xl z-20">
@@ -239,8 +241,41 @@ export function Toolbar({
                             onChange={(e) => {
                                 const file = e.target.files?.[0];
                                 if (file) {
-                                    const url = URL.createObjectURL(file);
-                                    onUploadImage(url);
+                                    // Compress and convert to Base64
+                                    const reader = new FileReader();
+                                    reader.onload = (event) => {
+                                        const img = new Image();
+                                        img.onload = () => {
+                                            const canvas = document.createElement('canvas');
+                                            let width = img.width;
+                                            let height = img.height;
+                                            
+                                            // Resize logic: Max dimension 1920px
+                                            const MAX_DIMENSION = 1920;
+                                            if (width > height) {
+                                                if (width > MAX_DIMENSION) {
+                                                    height *= MAX_DIMENSION / width;
+                                                    width = MAX_DIMENSION;
+                                                }
+                                            } else {
+                                                if (height > MAX_DIMENSION) {
+                                                    width *= MAX_DIMENSION / height;
+                                                    height = MAX_DIMENSION;
+                                                }
+                                            }
+
+                                            canvas.width = width;
+                                            canvas.height = height;
+                                            const ctx = canvas.getContext('2d');
+                                            ctx?.drawImage(img, 0, 0, width, height);
+                                            
+                                            // Compress to JPEG 70% quality
+                                            const dataUrl = canvas.toDataURL('image/jpeg', 0.7);
+                                            onUploadImage(dataUrl);
+                                        };
+                                        img.src = event.target?.result as string;
+                                    };
+                                    reader.readAsDataURL(file);
                                 }
                             }}
                         />
@@ -265,21 +300,36 @@ export function Toolbar({
 
                 {/* ACTIONS */}
                 <div className="space-y-3">
-                    <label className="text-xs font-bold text-neutral-400 uppercase tracking-wider">Actions</label>
+                    <label className="text-xs font-bold text-neutral-400 uppercase tracking-wider">Database</label>
 
-                    {/* Manual Save Button (Visual Feedback for Autosave) */}
+                    {/* Manual Save Button */}
                     <button
-                        onClick={handleSave}
+                        onClick={onSaveToDb}
+                        disabled={isSavingToDb}
                         className={cn(
                             "w-full flex items-center justify-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-colors border mb-2",
-                            saved 
-                                ? "bg-green-50 text-green-600 border-green-200"
+                            isSavingToDb 
+                                ? "bg-blue-50 text-blue-600 border-blue-200 cursor-wait"
                                 : "bg-white border-neutral-200 text-neutral-600 hover:bg-neutral-50"
                         )}
                     >
-                        <Save size={16} />
-                        {saved ? "Saved!" : "Save Project"}
+                        {isSavingToDb ? <RefreshCw className="animate-spin w-4 h-4" /> : <Save size={16} />}
+                        {isSavingToDb ? "Saving..." : "Save Project"}
                     </button>
+                    
+                    <label className="flex items-center gap-2 text-xs text-neutral-600 cursor-pointer select-none px-1">
+                        <input 
+                            type="checkbox" 
+                            checked={autoSaveDb} 
+                            onChange={onToggleAutoSaveDb}
+                            className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                        />
+                        <span>Auto-save to Database</span>
+                    </label>
+
+                    <div className="h-px bg-neutral-100 my-2"></div>
+                    
+                    <label className="text-xs font-bold text-neutral-400 uppercase tracking-wider">Actions</label>
 
                     {selectedEntity === 'ap' && (
                         <button

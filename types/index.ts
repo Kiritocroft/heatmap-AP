@@ -30,6 +30,12 @@ export interface AccessPoint extends Point {
   color: string;
 }
 
+export interface Device extends Point {
+  id: string;
+  type: 'phone' | 'laptop';
+  name: string;
+}
+
 // Telkomsel Corporate Standards for Material Attenuation
 // Industry-Standard Values for 5GHz (High Accuracy Mode)
 // Source: NIST IR 6055 & Aruba VRD

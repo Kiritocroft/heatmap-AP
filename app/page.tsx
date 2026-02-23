@@ -7,7 +7,7 @@ import { AntennaVisualizer } from '@/components/AntennaVisualizer';
 import { SignalLegend } from '@/components/SignalLegend';
 import { WallMaterial, DEFAULT_PIXELS_PER_METER } from '@/types';
 
-type ToolType = 'select' | 'wall' | 'ap' | 'door' | 'scale';
+type ToolType = 'select' | 'wall' | 'ap' | 'door' | 'scale' | 'device';
 
 interface Floor {
   id: string;
@@ -34,7 +34,23 @@ export default function Home() {
   const [imageOpacity, setImageOpacity] = useState<number>(0.5);
   const [canDelete, setCanDelete] = useState(false);
   const [showAntenna, setShowAntenna] = useState(false);
-  const [selectedEntity, setSelectedEntity] = useState<{ type: 'wall' | 'ap' | 'door', id: string } | null>(null);
+  const [selectedEntity, setSelectedEntity] = useState<{ type: 'wall' | 'ap' | 'door' | 'device', id: string } | null>(null);
+
+  // Database State
+  const [isSavingToDb, setIsSavingToDb] = useState(false);
+  const [autoSaveDb, setAutoSaveDb] = useState(false);
+  const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
+
+  // Load Autosave Preference
+  useEffect(() => {
+      const saved = localStorage.getItem('heatmap_autosave_db');
+      if (saved) setAutoSaveDb(JSON.parse(saved));
+  }, []);
+
+  // Save Autosave Preference
+  useEffect(() => {
+      localStorage.setItem('heatmap_autosave_db', JSON.stringify(autoSaveDb));
+  }, [autoSaveDb]);
 
   const editorRef = useRef<HeatmapEditorRef>(null);
 
@@ -118,6 +134,7 @@ export default function Home() {
     // This prevents overwriting data with empty state during hot-reload/remount
     if (!editorRef.current || !isDataLoadedRef.current) return;
 
+    setSaveStatus('saving');
     const data = editorRef.current.getData();
     
     const floorState: SavedFloorState = {
@@ -131,7 +148,15 @@ export default function Home() {
     floorsDataRef.current[currentFloorId] = floorState;
 
     // Update LocalStorage
-    localStorage.setItem(`heatmap_floor_data_${currentFloorId}`, JSON.stringify(floorState));
+    try {
+        localStorage.setItem(`heatmap_floor_data_${currentFloorId}`, JSON.stringify(floorState));
+        setSaveStatus('saved');
+        // Reset status after a delay
+        setTimeout(() => setSaveStatus('idle'), 1000);
+    } catch (e) {
+        console.error("Failed to save to localStorage:", e);
+        setSaveStatus('error');
+    }
   };
 
   // 4. Auto-Save Interval (Every 2 seconds)
@@ -212,6 +237,72 @@ export default function Home() {
     editorRef.current?.clearAll();
   };
 
+  // --- Database Sync ---
+  const saveToDatabase = async () => {
+    if (!editorRef.current || !isLoaded) return;
+    setIsSavingToDb(true);
+
+    try {
+        // 1. Ensure current floor is saved to memory/localStorage
+        saveCurrentFloor();
+        
+        // 2. Prepare Payload
+        const payload: Record<string, any> = {
+            'heatmap_floors': floors,
+            'heatmap_current_floor_id': currentFloorId,
+        };
+
+        // 3. Collect Data for ALL floors
+        floors.forEach(floor => {
+            const key = `heatmap_floor_data_${floor.id}`;
+            let data = floorsDataRef.current[floor.id];
+            
+            // If not in memory, try localStorage
+            if (!data) {
+                const local = localStorage.getItem(key);
+                if (local) {
+                    try {
+                        data = JSON.parse(local);
+                    } catch (e) {
+                        console.error("Failed to parse local data for key", key, e);
+                    }
+                }
+            }
+            
+            if (data) {
+                payload[key] = data;
+            }
+        });
+
+        // 4. Send to API
+        const res = await fetch('/api/data', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        });
+
+        if (!res.ok) throw new Error('Failed to save to database');
+        
+    } catch (error) {
+        console.error("Database Save Error:", error);
+        alert("Failed to save to database! Check console for details.");
+    } finally {
+        setIsSavingToDb(false);
+    }
+  };
+
+  // Auto-save to DB Effect
+  useEffect(() => {
+    if (!autoSaveDb || !isLoaded) return;
+
+    const interval = setInterval(() => {
+        saveToDatabase();
+    }, 10000); // Save every 10 seconds
+
+    return () => clearInterval(interval);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoSaveDb, isLoaded, floors, currentFloorId]); // Re-create interval if critical state changes
+
   return (
     <main className="flex h-screen w-full flex-row overflow-hidden bg-neutral-100">
       <Toolbar
@@ -221,12 +312,12 @@ export default function Home() {
         setScale={setScale}
         selectedMaterial={selectedMaterial}
         onMaterialChange={setSelectedMaterial}
-        onClearAll={handleClear}
-        canDelete={canDelete}
-        onDeleteSelected={handleDelete}
         onUploadImage={setBackgroundImage}
         imageOpacity={imageOpacity}
         onOpacityChange={setImageOpacity}
+        onClearAll={handleClear}
+        canDelete={canDelete}
+        onDeleteSelected={handleDelete}
         selectedEntity={selectedEntity?.type || null}
         showAntenna={showAntenna}
         onToggleAntenna={() => setShowAntenna(!showAntenna)}
@@ -237,7 +328,26 @@ export default function Home() {
         onAddFloor={handleAddFloor}
         onDeleteFloor={handleDeleteFloor}
         onReorderFloors={handleReorderFloors}
+
+        onSaveToDb={saveToDatabase}
+        isSavingToDb={isSavingToDb}
+        autoSaveDb={autoSaveDb}
+        onToggleAutoSaveDb={() => setAutoSaveDb(!autoSaveDb)}
       />
+
+      {/* Auto-save Status Indicator */}
+      <div className="absolute bottom-6 left-80 z-50 bg-white/90 backdrop-blur px-3 py-1.5 rounded-full text-xs font-medium shadow-md border border-slate-200 pointer-events-none flex items-center gap-2 transition-all duration-300">
+          {saveStatus === 'saving' && <span className="w-2 h-2 rounded-full bg-blue-500 animate-pulse"/>}
+          {saveStatus === 'saved' && <span className="w-2 h-2 rounded-full bg-green-500"/>}
+          {saveStatus === 'error' && <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse"/>}
+          {saveStatus === 'idle' && <span className="w-2 h-2 rounded-full bg-slate-300"/>}
+          
+          <span className={saveStatus === 'error' ? 'text-red-600' : 'text-slate-600'}>
+              {saveStatus === 'saving' ? 'Saving changes...' : 
+               saveStatus === 'saved' ? 'All changes saved' : 
+               saveStatus === 'error' ? 'Storage Full! Use DB Save' : 'Ready'}
+          </span>
+      </div>
       <div className="flex-1 flex flex-col relative shadow-inner">
         <HeatmapEditor
           ref={editorRef}

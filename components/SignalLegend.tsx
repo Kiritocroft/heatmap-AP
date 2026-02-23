@@ -6,7 +6,7 @@ export function SignalLegend() {
             <h3 className="text-[10px] uppercase tracking-widest font-bold mb-4 text-slate-400">Signal Strength (dBm)</h3>
 
             {/* Color Gradient Bar */}
-            <div className="h-2 w-full rounded-full bg-gradient-to-r from-[rgb(56,189,248)] via-[rgb(34,197,94)] via-[rgb(255,255,0)] via-[rgb(255,165,0)] to-[rgb(255,0,100)] mb-2"></div>
+            <div className="h-2 w-full rounded-full bg-gradient-to-r from-[rgb(239,68,68)] via-[rgb(59,130,246)] via-[rgb(249,115,22)] via-[rgb(234,179,8)] to-[rgb(34,197,94)] mb-2"></div>
             <div className="flex justify-between text-[9px] font-mono text-slate-500 mb-6">
                 <span>-85</span>
                 <span>-75</span>
@@ -17,24 +17,24 @@ export function SignalLegend() {
 
             <div className="flex flex-col gap-2.5">
                 <div className="flex items-center gap-3">
-                    <div className="w-3 h-3 rounded-full shadow-[0_0_8px_rgba(255,0,100,0.8)] bg-[rgb(255,0,100)]"></div>
-                    <span className="text-[11px] font-medium text-slate-300">Too Hot (&gt; -45)</span>
-                </div>
-                <div className="flex items-center gap-3">
-                    <div className="w-3 h-3 rounded-full shadow-[0_0_8px_rgba(255,165,0,0.8)] bg-[rgb(255,165,0)]"></div>
-                    <span className="text-[11px] font-medium text-slate-300">Excellent (-45 to -60)</span>
-                </div>
-                <div className="flex items-center gap-3">
-                    <div className="w-3 h-3 rounded-full shadow-[0_0_8px_rgba(255,255,0,0.8)] bg-[rgb(255,255,0)]"></div>
-                    <span className="text-[11px] font-medium text-slate-300">Good (-60 to -65)</span>
-                </div>
-                <div className="flex items-center gap-3">
                     <div className="w-3 h-3 rounded-full shadow-[0_0_8px_rgba(34,197,94,0.8)] bg-[rgb(34,197,94)]"></div>
-                    <span className="text-[11px] font-medium text-slate-300">Fair (-65 to -75)</span>
+                    <span className="text-[11px] font-medium text-slate-300">Excellent (&gt; -45)</span>
                 </div>
                 <div className="flex items-center gap-3">
-                    <div className="w-3 h-3 rounded-full shadow-[0_0_8px_rgba(56,189,248,0.8)] bg-[rgb(56,189,248)]"></div>
-                    <span className="text-[11px] font-medium text-slate-300">Weak (-75 to -85)</span>
+                    <div className="w-3 h-3 rounded-full shadow-[0_0_8px_rgba(234,179,8,0.8)] bg-[rgb(234,179,8)]"></div>
+                    <span className="text-[11px] font-medium text-slate-300">Good (-45 to -60)</span>
+                </div>
+                <div className="flex items-center gap-3">
+                    <div className="w-3 h-3 rounded-full shadow-[0_0_8px_rgba(249,115,22,0.8)] bg-[rgb(249,115,22)]"></div>
+                    <span className="text-[11px] font-medium text-slate-300">Fair (-60 to -65)</span>
+                </div>
+                <div className="flex items-center gap-3">
+                    <div className="w-3 h-3 rounded-full shadow-[0_0_8px_rgba(59,130,246,0.8)] bg-[rgb(59,130,246)]"></div>
+                    <span className="text-[11px] font-medium text-slate-300">Weak (-65 to -75)</span>
+                </div>
+                <div className="flex items-center gap-3">
+                    <div className="w-3 h-3 rounded-full shadow-[0_0_8px_rgba(239,68,68,0.8)] bg-[rgb(239,68,68)]"></div>
+                    <span className="text-[11px] font-medium text-slate-300">Bad (-75 to -85)</span>
                 </div>
                  <div className="flex items-center gap-3">
                     <div className="w-3 h-3 rounded-full border border-slate-600 bg-transparent"></div>

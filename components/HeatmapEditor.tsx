@@ -2,15 +2,15 @@
 
 import React, { useRef, useEffect, useState, useImperativeHandle, forwardRef } from 'react';
 import { cn } from '@/lib/utils';
-import { Point, Wall, AccessPoint, WallMaterial, DEFAULT_PIXELS_PER_METER, Door } from '@/types';
-import { Trash2 } from 'lucide-react';
+import { Point, Wall, AccessPoint, WallMaterial, DEFAULT_PIXELS_PER_METER, Door, Device, MATERIAL_ATTENUATION } from '@/types';
+import { Trash2, Smartphone, Laptop } from 'lucide-react';
 // import { propagateWave, getWaveColor } from '@/utils/waveEngine'; // REMOVED: Moved to Worker
 
 interface HeatmapEditorProps {
-    activeTool: 'select' | 'wall' | 'ap' | 'door' | 'scale';
+    activeTool: 'select' | 'wall' | 'ap' | 'door' | 'scale' | 'device';
     selectedMaterial: WallMaterial;
     scale: number;
-    onSelectionChange: (hasSelection: boolean, entity: { type: 'wall' | 'ap' | 'door', id: string } | null) => void;
+    onSelectionChange: (hasSelection: boolean, entity: { type: 'wall' | 'ap' | 'door' | 'device', id: string } | null) => void;
     backgroundImage: string | null;
     imageOpacity: number;
     onEditorReady?: () => void;
@@ -20,6 +20,7 @@ export interface HeatmapData {
     walls: Wall[];
     aps: AccessPoint[];
     doors: Door[];
+    devices?: Device[];
     pixelsPerMeter: number;
 }
 
@@ -46,6 +47,7 @@ export const HeatmapEditor = forwardRef<HeatmapEditorRef, HeatmapEditorProps>(({
     const [walls, setWalls] = useState<Wall[]>([]);
     const [aps, setAps] = useState<AccessPoint[]>([]);
     const [doors, setDoors] = useState<Door[]>([]);
+    const [devices, setDevices] = useState<Device[]>([]);
     
     // Scale State
     const [pixelsPerMeter, setPixelsPerMeter] = useState<number>(DEFAULT_PIXELS_PER_METER);
@@ -71,22 +73,28 @@ export const HeatmapEditor = forwardRef<HeatmapEditorRef, HeatmapEditorProps>(({
     const GRID_SIZE = 10;    // 25cm resolution (Balanced Performance/Quality)
 
     // Color Constants for Performance (R, G, B, A_255)
-    // Standard Heatmap Spectrum: Red (Hot/Strong) -> Green (Good) -> Blue (Cold/Weak)
+    // Custom Scheme: Green (Strongest) -> Yellow -> Orange -> Blue -> Red (Weakest)
+    // > -45: Excellent (Green)
+    // -45 to -60: Good (Yellow)
+    // -60 to -65: Fair (Orange)
+    // -65 to -75: Weak (Blue)
+    // -75 to -85: Bad (Red)
+    // < -85: Dead Zone
     const COLORS = {
-        TOO_HOT:   [255, 0, 100, 204],  // > -45 (Pink/Red)
-        EXCELLENT: [255, 165, 0, 204],  // -45 to -60 (Orange)
-        GOOD:      [255, 255, 0, 204],  // -60 to -65 (Yellow)
-        FAIR:      [34, 197, 94, 204],  // -65 to -75 (Green)
-        WEAK:      [56, 189, 248, 204], // -75 to -85 (Light Blue)
-        DEAD:      [0, 0, 0, 0]         // < -85 (Transparent)
+        EXCELLENT: [34, 197, 94, 204],   // > -45 (Green)
+        GOOD:      [234, 179, 8, 204],   // -45 to -60 (Yellow)
+        FAIR:      [249, 115, 22, 204],  // -60 to -65 (Orange)
+        WEAK:      [59, 130, 246, 204],  // -65 to -75 (Blue)
+        BAD:       [239, 68, 68, 204],   // -75 to -85 (Red)
+        DEAD:      [0, 0, 0, 0]          // < -85 (Transparent)
     };
 
     const getPixelColor = (dbm: number) => {
-        if (dbm > -45) return COLORS.TOO_HOT;
-        if (dbm > -60) return COLORS.EXCELLENT;
-        if (dbm > -65) return COLORS.GOOD;
-        if (dbm > -75) return COLORS.FAIR;
-        if (dbm > -85) return COLORS.WEAK;
+        if (dbm > -45) return COLORS.EXCELLENT;
+        if (dbm > -60) return COLORS.GOOD;
+        if (dbm > -65) return COLORS.FAIR;
+        if (dbm > -75) return COLORS.WEAK;
+        if (dbm > -85) return COLORS.BAD;
         return COLORS.DEAD;
     };
 
@@ -114,8 +122,9 @@ export const HeatmapEditor = forwardRef<HeatmapEditorRef, HeatmapEditorProps>(({
     const [wallStart, setWallStart] = useState<Point | null>(null);
     const [currentMousePos, setCurrentMousePos] = useState<Point | null>(null);
 
-    const [selectedEntity, setSelectedEntity] = useState<{ type: 'wall' | 'ap' | 'door', id: string } | null>(null);
+    const [selectedEntity, setSelectedEntity] = useState<{ type: 'wall' | 'ap' | 'door' | 'device', id: string } | null>(null);
     const [draggedApId, setDraggedApId] = useState<string | null>(null);
+    const [draggedDeviceId, setDraggedDeviceId] = useState<string | null>(null);
     const [hoverInfo, setHoverInfo] = useState<{ x: number, y: number, dbm: number, distance: number } | null>(null);
 
     const [pan, setPan] = useState({ x: 0, y: 0 });
@@ -145,6 +154,12 @@ export const HeatmapEditor = forwardRef<HeatmapEditorRef, HeatmapEditorProps>(({
                 entityX = (wall.start.x + wall.end.x) / 2;
                 entityY = (wall.start.y + wall.end.y) / 2;
             } else return null;
+        } else if (selectedEntity.type === 'device') {
+            const dev = devices.find(d => d.id === selectedEntity.id);
+            if (dev) {
+                entityX = dev.x;
+                entityY = dev.y;
+            } else return null;
         } else {
             return null;
         }
@@ -162,6 +177,8 @@ export const HeatmapEditor = forwardRef<HeatmapEditorRef, HeatmapEditorProps>(({
             if (!selectedEntity) return;
             if (selectedEntity.type === 'ap') {
                 setAps(prev => prev.filter(ap => ap.id !== selectedEntity.id));
+            } else if (selectedEntity.type === 'device') {
+                setDevices(prev => prev.filter(d => d.id !== selectedEntity.id));
             } else if (selectedEntity.type === 'door') {
                 setDoors(prev => prev.filter(d => d.id !== selectedEntity.id));
             } else {
@@ -171,12 +188,14 @@ export const HeatmapEditor = forwardRef<HeatmapEditorRef, HeatmapEditorProps>(({
             setSelectedEntity(null);
             onSelectionChange(false, null);
             setDraggedApId(null);
+            setDraggedDeviceId(null);
         },
         clearAll: () => {
             if (confirm('Are you sure you want to clear the entire canvas? This will remove all walls, APs, and doors.')) {
                 setWalls([]);
                 setAps([]);
                 setDoors([]);
+                setDevices([]);
                 setSelectedEntity(null);
                 onSelectionChange(false, null);
                 localStorage.removeItem('heatmap_autosave');
@@ -186,12 +205,18 @@ export const HeatmapEditor = forwardRef<HeatmapEditorRef, HeatmapEditorProps>(({
             walls,
             aps,
             doors,
+            devices,
             pixelsPerMeter
         }),
         loadData: (data: HeatmapData) => {
             setWalls(data.walls || []);
-            setAps(data.aps || []);
+            // Migration: Ensure all APs have txPower
+            setAps((data.aps || []).map(ap => ({
+                ...ap,
+                txPower: ap.txPower ?? 20 // Default to 20 dBm if missing
+            })));
             setDoors(data.doors || []);
+            setDevices(data.devices || []);
             setPixelsPerMeter(data.pixelsPerMeter || DEFAULT_PIXELS_PER_METER);
             setSelectedEntity(null);
             onSelectionChange(false, null);
@@ -224,6 +249,9 @@ export const HeatmapEditor = forwardRef<HeatmapEditorRef, HeatmapEditorProps>(({
             if (draggedApId) {
                 setDraggedApId(null);
             }
+            if (draggedDeviceId) {
+                setDraggedDeviceId(null);
+            }
             if (isPanning) {
                 setIsPanning(false);
             }
@@ -235,7 +263,7 @@ export const HeatmapEditor = forwardRef<HeatmapEditorRef, HeatmapEditorProps>(({
 
         window.addEventListener('mouseup', handleGlobalMouseUp);
         return () => window.removeEventListener('mouseup', handleGlobalMouseUp);
-    }, [draggedApId, isPanning, isDrawingWall]);
+    }, [draggedApId, draggedDeviceId, isPanning, isDrawingWall]);
 
     // Notify Parent Ready
     useEffect(() => {
@@ -371,11 +399,23 @@ export const HeatmapEditor = forwardRef<HeatmapEditorRef, HeatmapEditorProps>(({
                 id: crypto.randomUUID(),
                 x: pos.x,
                 y: pos.y,
-                txPower: 14, // 14 dBm (25mW) - Standard for Enterprise High Density
+                txPower: 20, // 20 dBm (100mW) - Standard Indoor AP
                 channel: 6,
                 color: '#34d399',
             };
             setAps(prev => [...prev, newAp]);
+            return;
+        }
+
+        if (activeTool === 'device') {
+            const newDevice: Device = {
+                id: crypto.randomUUID(),
+                x: pos.x,
+                y: pos.y,
+                type: 'phone',
+                name: `Device ${devices.length + 1}`
+            };
+            setDevices(prev => [...prev, newDevice]);
             return;
         }
 
@@ -442,6 +482,14 @@ export const HeatmapEditor = forwardRef<HeatmapEditorRef, HeatmapEditorProps>(({
                 return;
             }
 
+            const clickedDevice = devices.find(d => Math.hypot(d.x - pos.x, d.y - pos.y) < 15);
+            if (clickedDevice) {
+                setDraggedDeviceId(clickedDevice.id);
+                setSelectedEntity({ type: 'device', id: clickedDevice.id });
+                onSelectionChange(true, { type: 'device', id: clickedDevice.id });
+                return;
+            }
+
             const clickedWall = walls.find(w => {
                 const { start, end, thickness } = w;
                 const l2 = Math.pow(end.x - start.x, 2) + Math.pow(end.y - start.y, 2);
@@ -491,7 +539,7 @@ export const HeatmapEditor = forwardRef<HeatmapEditorRef, HeatmapEditorProps>(({
             let velX = 0;
             let velY = 0;
 
-            if (isDrawingWall || draggedApId) {
+            if (isDrawingWall || draggedApId || draggedDeviceId) {
                 if (x < threshold) velX = speed;
                 else if (x > w - threshold) velX = -speed;
                 
@@ -513,6 +561,12 @@ export const HeatmapEditor = forwardRef<HeatmapEditorRef, HeatmapEditorProps>(({
         if (activeTool === 'select' && draggedApId) {
             setAps(prev => prev.map(ap =>
                 ap.id === draggedApId ? { ...ap, x: pos.x, y: pos.y } : ap
+            ));
+        }
+
+        if (activeTool === 'select' && draggedDeviceId) {
+            setDevices(prev => prev.map(d =>
+                d.id === draggedDeviceId ? { ...d, x: pos.x, y: pos.y } : d
             ));
         }
 
@@ -923,11 +977,125 @@ export const HeatmapEditor = forwardRef<HeatmapEditorRef, HeatmapEditorProps>(({
                 ctx.fillStyle = '#22c55e'; ctx.beginPath(); ctx.arc(ap.x + 8, ap.y, 1, 0, Math.PI * 2); ctx.fill();
             });
 
+            // Draw Devices
+            devices.forEach(device => {
+                const isSelected = selectedEntity?.id === device.id;
+                
+                // Draw Connection Line if selected
+                if (isSelected) {
+                    let bestAp: AccessPoint | null = null;
+                    let maxSignal = -Infinity;
+                    aps.forEach(ap => {
+                        const sig = calculateSignalStrength(ap, device);
+                        if (sig > maxSignal) {
+                            maxSignal = sig;
+                            bestAp = ap;
+                        }
+                    });
+
+                    if (bestAp) {
+                        ctx.beginPath();
+                        ctx.moveTo(device.x, device.y);
+                        ctx.lineTo(bestAp.x, bestAp.y);
+                        ctx.strokeStyle = bestAp.color;
+                        ctx.lineWidth = 2;
+                        ctx.setLineDash([5, 5]);
+                        ctx.stroke();
+                        ctx.setLineDash([]);
+                    }
+
+                    // Selection Halo
+                    ctx.beginPath();
+                    ctx.arc(device.x, device.y, 18, 0, Math.PI * 2);
+                    ctx.strokeStyle = '#3b82f6';
+                    ctx.lineWidth = 2;
+                    ctx.stroke();
+                }
+
+                // Device Icon (Simple Circle with Icon hint)
+                ctx.beginPath();
+                ctx.arc(device.x, device.y, 12, 0, Math.PI * 2);
+                ctx.fillStyle = '#fff';
+                ctx.fill();
+                ctx.strokeStyle = isSelected ? '#2563eb' : '#64748b';
+                ctx.lineWidth = 2;
+                ctx.stroke();
+
+                // Draw Icon (Simplified as text/symbol for canvas)
+                ctx.fillStyle = '#64748b';
+                ctx.font = '12px "Lucida Console", Monaco, monospace';
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                ctx.fillText(device.type === 'phone' ? '📱' : '💻', device.x, device.y + 1);
+
+                // Calculate Signal for Badge
+                let maxSignal = -Infinity;
+                aps.forEach(ap => {
+                    const sig = calculateSignalStrength(ap, device);
+                    if (sig > maxSignal) maxSignal = sig;
+                });
+
+                if (maxSignal > -Infinity) {
+                    const color = getPixelColor(maxSignal);
+                    const colorHex = `rgba(${color[0]}, ${color[1]}, ${color[2]}, 1)`;
+                    
+                    ctx.beginPath();
+                    ctx.arc(device.x + 10, device.y - 10, 6, 0, Math.PI * 2);
+                    ctx.fillStyle = colorHex;
+                    ctx.fill();
+                    ctx.strokeStyle = '#fff';
+                    ctx.lineWidth = 1;
+                    ctx.stroke();
+                }
+            });
+
             ctx.restore();
         };
         requestRef.current = requestAnimationFrame(animate);
         return () => cancelAnimationFrame(requestRef.current);
-    }, [dimensions, walls, aps, doors, isDrawingWall, wallStart, currentMousePos, scale, selectedEntity, imageOpacity, isSettingScale, pixelsPerMeter, scaleStart]);
+    }, [dimensions, walls, aps, doors, devices, isDrawingWall, wallStart, currentMousePos, scale, selectedEntity, imageOpacity, isSettingScale, pixelsPerMeter, scaleStart]);
+
+    // Helper to calculate signal strength between two points (AP and Device)
+    const calculateSignalStrength = (ap: AccessPoint, device: Device): number => {
+        const distPixels = Math.hypot(device.x - ap.x, device.y - ap.y);
+        const distMeters = Math.max(0.1, distPixels / pixelsPerMeter);
+        
+        // FSPL (Free Space Path Loss)
+        // 20log10(d) + 20log10(f) - 147.55 (for f in Hz)
+        // For 5GHz (5000MHz): 20log10(5000) - 27.55 = ~74dB at 1m?
+        // Let's use the simplified formula from worker:
+        // PL = PL0 + 10 * n * log10(d)
+        // PL0 @ 1m for 5GHz ~ 46dB
+        // n = 3.5 (Indoor)
+        const PL0 = 46;
+        const n = 3.5;
+        const fspl = PL0 + 10 * n * Math.log10(distMeters);
+
+        // Wall Loss
+        let wallLoss = 0;
+        walls.forEach(wall => {
+            // Check intersection
+            const x1 = ap.x, y1 = ap.y;
+            const x2 = device.x, y2 = device.y;
+            const x3 = wall.start.x, y3 = wall.start.y;
+            const x4 = wall.end.x, y4 = wall.end.y;
+
+            // Denominator
+            const den = (x1 - x2) * (y3 - y4) - (y1 - y2) * (x3 - x4);
+            if (den === 0) return; // Parallel
+
+            const t = ((x1 - x3) * (y3 - y4) - (y1 - y3) * (x3 - x4)) / den;
+            const u = -((x1 - x2) * (y1 - y3) - (y1 - y2) * (x1 - x3)) / den;
+
+            if (t >= 0 && t <= 1 && u >= 0 && u <= 1) {
+                // Intersect!
+                const matLoss = MATERIAL_ATTENUATION[wall.material] || 0;
+                wallLoss += matLoss;
+            }
+        });
+
+        return ap.txPower - fspl - wallLoss;
+    };
 
     return (
         <div
@@ -1081,22 +1249,35 @@ export const HeatmapEditor = forwardRef<HeatmapEditorRef, HeatmapEditorProps>(({
                     </select>
                 </div>
 
-                {/* Tx Power Selector */}
-                <div className="flex items-center justify-between gap-2">
-                    <span className="text-[10px] text-slate-500">Tx Power</span>
-                    <select 
-                        className="text-xs p-1 border border-slate-200 rounded bg-slate-50 outline-none focus:ring-1 focus:ring-blue-500 w-24"
-                        value={aps.find(a => a.id === selectedEntity.id)?.txPower}
-                        onChange={(e) => {
-                            const newTx = parseInt(e.target.value);
-                            setAps(prev => prev.map(a => a.id === selectedEntity.id ? { ...a, txPower: newTx } : a));
-                        }}
-                    >
-                        <option value={4}>4 dBm (Low)</option>
-                        <option value={10}>10 dBm (Med)</option>
-                        <option value={14}>14 dBm (High)</option>
-                        <option value={18}>18 dBm (Max)</option>
-                    </select>
+                {/* Tx Power Slider */}
+                <div className="flex flex-col gap-1">
+                    <div className="flex items-center justify-between">
+                        <span className="text-[10px] text-slate-500 font-medium">Tx Power</span>
+                        <span className="text-[10px] font-mono text-slate-700 bg-slate-100 px-1.5 py-0.5 rounded">
+                            {aps.find(a => a.id === selectedEntity.id)?.txPower} dBm
+                        </span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                         <span className="text-[9px] text-slate-400">1</span>
+                         <input 
+                            type="range"
+                            min="1"
+                            max="30"
+                            step="1"
+                            className="w-full h-1.5 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-blue-600"
+                            value={aps.find(a => a.id === selectedEntity.id)?.txPower || 20}
+                            onChange={(e) => {
+                                const newTx = parseInt(e.target.value);
+                                setAps(prev => prev.map(a => a.id === selectedEntity.id ? { ...a, txPower: newTx } : a));
+                            }}
+                        />
+                        <span className="text-[9px] text-slate-400">30</span>
+                    </div>
+                    <div className="flex justify-between text-[8px] text-slate-400 px-0.5">
+                        <span>Low</span>
+                        <span>Med</span>
+                        <span>High</span>
+                    </div>
                 </div>
 
                 <button 
@@ -1113,6 +1294,98 @@ export const HeatmapEditor = forwardRef<HeatmapEditorRef, HeatmapEditorProps>(({
             </div>
         )}
 
+        {/* Device Property Editor */}
+        {selectedEntity?.type === 'device' && popupPos && (
+            <div 
+                className="absolute z-50 bg-white/80 backdrop-blur-md rounded-lg shadow-lg border border-slate-200/50 p-2 flex flex-col gap-2 w-48 animate-in fade-in zoom-in duration-200"
+                style={{ 
+                    left: popupPos.x, 
+                    top: popupPos.y - (60 * scale), // Scale offset
+                    transform: `translateX(-50%) scale(${Math.max(0.5, scale)})`,
+                    transformOrigin: 'bottom center'
+                }}
+                onMouseDown={(e) => e.stopPropagation()} 
+            >
+                <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Edit Device</div>
+                
+                <div className="flex flex-col gap-2">
+                    <input
+                        type="text"
+                        className="text-xs p-1.5 border border-slate-200 rounded bg-white/50 w-full outline-none focus:ring-1 focus:ring-blue-500"
+                        value={devices.find(d => d.id === selectedEntity.id)?.name}
+                        onChange={(e) => {
+                            setDevices(prev => prev.map(d => d.id === selectedEntity.id ? { ...d, name: e.target.value } : d));
+                        }}
+                        placeholder="Device Name"
+                    />
+
+                    <div className="flex items-center justify-between gap-2">
+                        <span className="text-[10px] text-slate-500">Type</span>
+                        <select 
+                            className="text-xs p-1 border border-slate-200 rounded bg-slate-50 outline-none focus:ring-1 focus:ring-blue-500 flex-1"
+                            value={devices.find(d => d.id === selectedEntity.id)?.type}
+                            onChange={(e) => {
+                                const newType = e.target.value as 'phone' | 'laptop';
+                                setDevices(prev => prev.map(d => d.id === selectedEntity.id ? { ...d, type: newType } : d));
+                            }}
+                        >
+                            <option value="phone">Smartphone</option>
+                            <option value="laptop">Laptop</option>
+                        </select>
+                    </div>
+
+                    {/* Signal Info */}
+                    {(() => {
+                        const dev = devices.find(d => d.id === selectedEntity.id);
+                        if (!dev) return null;
+                        
+                        let bestAp: AccessPoint | null = null;
+                        let maxSignal = -Infinity;
+
+                        aps.forEach(ap => {
+                            const sig = calculateSignalStrength(ap, dev);
+                            if (sig > maxSignal) {
+                                maxSignal = sig;
+                                bestAp = ap;
+                            }
+                        });
+
+                        if (!bestAp) return <div className="text-[10px] text-slate-400 italic text-center py-1">No Signal</div>;
+
+                        return (
+                            <div className="bg-slate-50 rounded p-1.5 flex flex-col gap-1 border border-slate-100">
+                                <div className="flex justify-between text-[10px]">
+                                    <span className="text-slate-500">Connected to:</span>
+                                    <span className="font-medium text-blue-600">Ch {bestAp.channel}</span>
+                                </div>
+                                <div className="flex justify-between text-[10px]">
+                                    <span className="text-slate-500">Signal:</span>
+                                    <span className={cn(
+                                        "font-bold",
+                                        maxSignal > -45 ? "text-green-600" : maxSignal > -60 ? "text-yellow-600" : maxSignal > -65 ? "text-orange-500" : maxSignal > -75 ? "text-blue-500" : "text-red-600"
+                                    )}>
+                                        {Math.round(maxSignal)} dBm
+                                    </span>
+                                </div>
+                            </div>
+                        );
+                    })()}
+                </div>
+
+                <button 
+                    onClick={() => {
+                        setDevices(prev => prev.filter(d => d.id !== selectedEntity.id));
+                        setSelectedEntity(null);
+                        onSelectionChange(false, null);
+                        setDraggedDeviceId(null);
+                    }}
+                    className="text-xs flex items-center justify-center gap-1 text-red-500 hover:bg-red-50 p-1.5 rounded transition-colors mt-1"
+                >
+                    <Trash2 size={12} /> Delete Device
+                </button>
+            </div>
+        )}
+
             {hoverInfo && (
                 <div
                     className="fixed pointer-events-none z-50 bg-black/80 backdrop-blur-sm border border-white/20 text-white p-2 rounded-lg shadow-xl text-xs flex flex-col gap-1"
@@ -1120,7 +1393,7 @@ export const HeatmapEditor = forwardRef<HeatmapEditorRef, HeatmapEditorProps>(({
                 >
                     <div className="flex justify-between gap-4">
                         <span className="text-gray-400">Signal:</span>
-                        <span className={cn("font-bold", hoverInfo.dbm > -65 ? "text-green-400" : hoverInfo.dbm > -80 ? "text-yellow-400" : "text-red-400")}>
+                        <span className={cn("font-bold", hoverInfo.dbm > -45 ? "text-green-400" : hoverInfo.dbm > -60 ? "text-yellow-400" : hoverInfo.dbm > -65 ? "text-orange-400" : hoverInfo.dbm > -75 ? "text-blue-400" : "text-red-400")}>
                             {Math.round(hoverInfo.dbm)} dBm
                         </span>
                     </div>
@@ -1130,8 +1403,8 @@ export const HeatmapEditor = forwardRef<HeatmapEditorRef, HeatmapEditorProps>(({
                     </div>
                     <div className="h-1 w-full bg-gray-700 rounded-full mt-1 overflow-hidden">
                         <div
-                            className={cn("h-full transition-all duration-300", hoverInfo.dbm > -65 ? "bg-green-500" : hoverInfo.dbm > -80 ? "bg-yellow-500" : "bg-red-500")}
-                            style={{ width: `${Math.max(0, Math.min(100, (hoverInfo.dbm + 120) * (100 / 90)))}%` }}
+                            className={cn("h-full transition-all duration-300", hoverInfo.dbm > -45 ? "bg-green-500" : hoverInfo.dbm > -60 ? "bg-yellow-500" : hoverInfo.dbm > -65 ? "bg-orange-500" : hoverInfo.dbm > -75 ? "bg-blue-500" : "bg-red-500")}
+                            style={{ width: `${Math.max(0, Math.min(100, (hoverInfo.dbm + 110) * (100 / 80)))}%` }}
                         />
                     </div>
                 </div>
