@@ -396,8 +396,8 @@ export function Toolbar({
             
             {/* Status Bar */}
             <div className="p-3 bg-neutral-50 border-t border-neutral-200 text-[10px] text-neutral-400 flex justify-between">
-                <span>v1.2.0 (Telkomsel)</span>
-                <span>Aruba AP-315</span>
+                <span>v1.2.0 (Enterprise)</span>
+                <span>Aruba AP-315 / UniFi U6 Pro</span>
             </div>
         </div>
     );

@@ -1,11 +1,11 @@
 import { AccessPoint, Wall, Point, MATERIAL_ATTENUATION, DEFAULT_PIXELS_PER_METER, Door } from "@/types";
 import { getIntersection, distance } from "./geometry";
 
-// Aruba AP 315 Physics Model
-const PL_D0 = 40;
-const PATH_LOSS_EXPONENT = 3.0; // Indoor Office Environment (Log-Distance Model)
-const FREQUENCY_MHZ = 2400;
-const CONSTANT_FSPL = 20 * Math.log10(FREQUENCY_MHZ) - 27.55;
+// Enterprise 5GHz Physics Model
+// Reference: IEEE 802.11 standards, Aruba VRD, Cisco Wireless Design Guide
+const PATH_LOSS_EXPONENT = 3.0; // Indoor Office Environment (2.7-3.5 typical)
+const FREQUENCY_MHZ = 5000; // 5GHz Enterprise Standard
+const PL_D0_5GHZ = 46.4; // Path loss at 1m for 5GHz (free space)
 
 // Reflection Coefficients (Industry Standard)
 const METAL_REFLECTION_COEFFICIENT = 0.6;    // 60% energy retained after bounce
@@ -64,8 +64,8 @@ function calculateDirectSignal(
 
     if (distMeters > 30) return -120; // Beyond range
 
-    // Log-Distance Path Loss Model: PL = PL0 + 10 * n * log10(d)
-    const fspl = (10 * PATH_LOSS_EXPONENT) * Math.log10(distMeters) + CONSTANT_FSPL;
+    // Log-Distance Path Loss Model: PL(d) = PL(d0) + 10*n*log10(d/d0)
+    const fspl = PL_D0_5GHZ + (10 * PATH_LOSS_EXPONENT) * Math.log10(distMeters);
 
     // CRITICAL FIX: Additive attenuation and strict metal blocking
     let totalAttenuation = 0;
@@ -192,7 +192,7 @@ export function calculateSignalStrength(
             const virtualDistMeters = Math.max(0.1, virtualDistPixels / pixelsPerMeter);
 
             if (virtualDistMeters <= 30) {
-                const virtualFspl = (10 * PATH_LOSS_EXPONENT) * Math.log10(virtualDistMeters) + CONSTANT_FSPL;
+                const virtualFspl = PL_D0_5GHZ + (10 * PATH_LOSS_EXPONENT) * Math.log10(virtualDistMeters);
                 const virtualSignal = ap.txPower - virtualFspl;
                 const reflected = virtualSignal + 10 * Math.log10(METAL_REFLECTION_COEFFICIENT);
 

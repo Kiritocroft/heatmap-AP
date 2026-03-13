@@ -1084,12 +1084,12 @@ export const HeatmapEditor = forwardRef<HeatmapEditorRef, HeatmapEditorProps>(({
                 }
                 
                 // Draw AP Body
-                const bx = ap.x - 13, by = ap.y - 5;
-                ctx.beginPath(); ctx.roundRect(bx, by, 26, 10, 2); ctx.fillStyle = '#f5f5f5'; ctx.fill();
-                ctx.strokeStyle = '#525252'; ctx.lineWidth = 1.5; ctx.stroke();
+                const bx = ap.x - 20, by = ap.y - 8;
+                ctx.beginPath(); ctx.roundRect(bx, by, 40, 16, 4); ctx.fillStyle = '#f5f5f5'; ctx.fill();
+                ctx.strokeStyle = '#525252'; ctx.lineWidth = 2; ctx.stroke();
                 
                 // LED Status
-                ctx.fillStyle = '#22c55e'; ctx.beginPath(); ctx.arc(ap.x + 8, ap.y, 1, 0, Math.PI * 2); ctx.fill();
+                ctx.fillStyle = '#22c55e'; ctx.beginPath(); ctx.arc(ap.x + 12, ap.y, 2, 0, Math.PI * 2); ctx.fill();
                 
                 // Reset Alpha
                 ctx.globalAlpha = 1.0;
@@ -1099,32 +1099,47 @@ export const HeatmapEditor = forwardRef<HeatmapEditorRef, HeatmapEditorProps>(({
             devices.forEach(device => {
                 const isSelected = selectedEntity?.id === device.id;
                 
-                // Draw Connection Line if selected
-                if (isSelected) {
-                    let bestAp: AccessPoint | null = null;
-                    let maxSignal = -Infinity;
-                    aps.forEach(ap => {
-                        const sig = calculateSignalStrength(ap, device);
-                        if (sig > maxSignal) {
-                            maxSignal = sig;
-                            bestAp = ap;
-                        }
-                    });
-
-                    if (bestAp) {
-                        ctx.beginPath();
-                        ctx.moveTo(device.x, device.y);
-                        ctx.lineTo(bestAp.x, bestAp.y);
-                        ctx.strokeStyle = bestAp.color;
-                        ctx.lineWidth = 2;
-                        ctx.setLineDash([5, 5]);
-                        ctx.stroke();
-                        ctx.setLineDash([]);
+                // --- UNIFIED CONNECTION LINE LOGIC (Prevents Double Lines) ---
+                // Always calculate strongest AP
+                let bestAp: AccessPoint | null = null;
+                let maxSignal = -Infinity;
+                aps.forEach(ap => {
+                    const sig = calculateSignalStrength(ap, device);
+                    if (sig > maxSignal) {
+                        maxSignal = sig;
+                        bestAp = ap;
                     }
+                });
 
-                    // Selection Halo
+                // Draw Line (Thicker & More Visible)
+                if (bestAp && maxSignal > -100) {
                     ctx.beginPath();
-                    ctx.arc(device.x, device.y, 18, 0, Math.PI * 2);
+                    ctx.moveTo(device.x, device.y);
+                    ctx.lineTo((bestAp as AccessPoint).x, (bestAp as AccessPoint).y);
+                    
+                    // Style: 
+                    // Selected: Color of AP, Solid, Thick (4px)
+                    // Unselected: Color of AP (Green default), Dashed, Thick (3px)
+                    
+                    const lineColor = (bestAp as AccessPoint).color || '#22c55e'; // Use AP color or default green
+                    ctx.strokeStyle = lineColor; 
+                    
+                    if (isSelected) {
+                        ctx.lineWidth = 4;
+                        ctx.setLineDash([]); // Solid
+                    } else {
+                        ctx.lineWidth = 3;
+                        ctx.setLineDash([8, 6]); // Dashed but visible
+                    }
+                    
+                    ctx.stroke();
+                    ctx.setLineDash([]);
+                }
+
+                // Selection Halo
+                if (isSelected) {
+                    ctx.beginPath();
+                    ctx.arc(device.x, device.y, 22, 0, Math.PI * 2);
                     ctx.strokeStyle = '#3b82f6';
                     ctx.lineWidth = 2;
                     ctx.stroke();
@@ -1132,27 +1147,21 @@ export const HeatmapEditor = forwardRef<HeatmapEditorRef, HeatmapEditorProps>(({
 
                 // Device Icon (Simple Circle with Icon hint)
                 ctx.beginPath();
-                ctx.arc(device.x, device.y, 12, 0, Math.PI * 2);
+                ctx.arc(device.x, device.y, 16, 0, Math.PI * 2);
                 ctx.fillStyle = '#fff';
                 ctx.fill();
                 ctx.strokeStyle = isSelected ? '#2563eb' : '#64748b';
-                ctx.lineWidth = 2;
+                ctx.lineWidth = 2.5;
                 ctx.stroke();
 
                 // Draw Icon (Simplified as text/symbol for canvas)
                 ctx.fillStyle = '#64748b';
-                ctx.font = '12px "Lucida Console", Monaco, monospace';
+                ctx.font = '16px "Lucida Console", Monaco, monospace';
                 ctx.textAlign = 'center';
                 ctx.textBaseline = 'middle';
                 ctx.fillText(device.type === 'phone' ? '📱' : '💻', device.x, device.y + 1);
 
-                // Calculate Signal for Badge
-                let maxSignal = -Infinity;
-                aps.forEach(ap => {
-                    const sig = calculateSignalStrength(ap, device);
-                    if (sig > maxSignal) maxSignal = sig;
-                });
-
+                // Calculate Signal for Badge (Already calculated above)
                 if (maxSignal > -Infinity) {
                     const color = getPixelColor(maxSignal);
                     const colorHex = `rgba(${color[0]}, ${color[1]}, ${color[2]}, 1)`;
@@ -1174,20 +1183,17 @@ export const HeatmapEditor = forwardRef<HeatmapEditorRef, HeatmapEditorProps>(({
     }, [dimensions, walls, aps, doors, devices, isDrawingWall, wallStart, currentMousePos, scale, selectedEntity, imageOpacity, isSettingScale, pixelsPerMeter, scaleStart]);
 
     // Helper to calculate signal strength between two points (AP and Device)
+    // Uses Enterprise 5GHz Log-Distance Path Loss Model
     const calculateSignalStrength = (ap: AccessPoint, device: Device): number => {
         const distPixels = Math.hypot(device.x - ap.x, device.y - ap.y);
         const distMeters = Math.max(0.1, distPixels / pixelsPerMeter);
         
-        // FSPL (Free Space Path Loss)
-        // 20log10(d) + 20log10(f) - 147.55 (for f in Hz)
-        // For 5GHz (5000MHz): 20log10(5000) - 27.55 = ~74dB at 1m?
-        // Let's use the simplified formula from worker:
-        // PL = PL0 + 10 * n * log10(d)
-        // PL0 @ 1m for 5GHz ~ 46dB
-        // n = 3.5 (Indoor)
-        const PL0 = 46;
-        const n = 3.5;
-        const fspl = PL0 + 10 * n * Math.log10(distMeters);
+        // Log-Distance Path Loss Model for 5GHz
+        // PL(d) = PL(d0) + 10*n*log10(d/d0)
+        // PL(1m) for 5GHz = 46.4 dB, n = 3.0 (indoor office)
+        const PL_D0_5GHZ = 46.4;
+        const PATH_LOSS_EXPONENT = 3.0;
+        const fspl = PL_D0_5GHZ + (10 * PATH_LOSS_EXPONENT) * Math.log10(distMeters);
 
         // Wall Loss
         let wallLoss = 0;
@@ -1595,6 +1601,7 @@ export const HeatmapEditor = forwardRef<HeatmapEditorRef, HeatmapEditorProps>(({
                     <div>Entities: W:{walls.length} A:{aps.length} D:{doors.length}</div>
                 </div>
             </div>
+
         </div>
     );
 });

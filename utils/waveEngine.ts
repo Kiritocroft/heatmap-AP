@@ -141,10 +141,11 @@ export function buildAttenuationGrid(
     return grid;
 }
 
-// Aruba AP 315 Constants
-const FREQUENCY_MHZ = 2400; // 2.4 GHz
-const CONSTANT_FSPL = 20 * Math.log10(FREQUENCY_MHZ) - 27.55;
-const PATH_LOSS_EXPONENT = 3.0; // Indoor Office
+// Enterprise 5GHz Constants
+// Reference: IEEE 802.11 standards, Aruba VRD, Cisco Wireless Design Guide
+const FREQUENCY_MHZ = 5000; // 5GHz Enterprise Standard
+const PL_D0_5GHZ = 46.4; // Path loss at 1m for 5GHz
+const PATH_LOSS_EXPONENT = 3.0; // Indoor Office Environment
 
 // Core Propagation Logic (Dijkstra)
 function runDijkstra(
@@ -264,7 +265,7 @@ export function propagateWave(
     // 2. Main Propagation (Direct + Diffraction)
     const mainSignalGrid = runDijkstra(
         { x: ap.x, y: ap.y },
-        ap.txPower - ((10 * PATH_LOSS_EXPONENT) * Math.log10(0.1) + CONSTANT_FSPL), // Init signal at 0.1m
+        ap.txPower - (PL_D0_5GHZ + (10 * PATH_LOSS_EXPONENT) * Math.log10(0.1)), // Init signal at 0.1m
         baseAttenuationGrid,
         cols,
         rows,
@@ -306,7 +307,7 @@ export function propagateWave(
         // E. Run Dijkstra for Virtual AP
         const reflectionSignalGrid = runDijkstra(
             virtualAPPos,
-            ap.txPower - ((10 * PATH_LOSS_EXPONENT) * Math.log10(0.1) + CONSTANT_FSPL) - 2.2, // -2.2dB for Metal Reflection (60%)
+            ap.txPower - (PL_D0_5GHZ + (10 * PATH_LOSS_EXPONENT) * Math.log10(0.1)) - 2.2, // -2.2dB for Metal Reflection (60%)
             reflectionAttenuationGrid,
             cols,
             rows,

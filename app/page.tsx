@@ -5,7 +5,7 @@ import { Toolbar } from '@/components/Toolbar';
 import { HeatmapEditor, HeatmapEditorRef, HeatmapData } from '@/components/HeatmapEditor';
 import { AntennaVisualizer } from '@/components/AntennaVisualizer';
 import { SignalLegend } from '@/components/SignalLegend';
-import { WallMaterial, DEFAULT_PIXELS_PER_METER } from '@/types';
+import { WallMaterial, DEFAULT_PIXELS_PER_METER, AP_PRESETS } from '@/types';
 
 type ToolType = 'select' | 'wall' | 'ap' | 'door' | 'scale' | 'device';
 
@@ -19,6 +19,9 @@ interface SavedFloorState extends HeatmapData {
   imageOpacity: number;
   scale: number;
 }
+
+// Cache version - increment when AP_PRESETS changes to force cache clear
+const CACHE_VERSION = 'v2';
 
 export default function Home() {
   // --- Multi-Floor State ---
@@ -40,6 +43,21 @@ export default function Home() {
   const [isSavingToDb, setIsSavingToDb] = useState(false);
   const [autoSaveDb, setAutoSaveDb] = useState(false);
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
+
+  // Cache Version Check - Clear old data if version mismatch
+  useEffect(() => {
+    const storedVersion = localStorage.getItem('heatmap_cache_version');
+    if (storedVersion !== CACHE_VERSION) {
+      // Clear all heatmap data to ensure fresh start with new AP models
+      Object.keys(localStorage).forEach(key => {
+        if (key.startsWith('heatmap_')) {
+          localStorage.removeItem(key);
+        }
+      });
+      localStorage.setItem('heatmap_cache_version', CACHE_VERSION);
+      console.log('[WiFi Planner] Cache cleared - Updated to', CACHE_VERSION);
+    }
+  }, []);
 
   // Load Autosave Preference
   useEffect(() => {

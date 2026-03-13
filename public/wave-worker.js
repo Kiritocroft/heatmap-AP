@@ -4,13 +4,15 @@
 // --- Constants & Types (Inlined to avoid import issues) ---
 const DEFAULT_PIXELS_PER_METER = 40;
 
+// Enterprise Standards for Material Attenuation at 5GHz
+// Sources: NIST IR 6055, Aruba VRD, Cisco Wireless Design Guide
 const MATERIAL_ATTENUATION = {
-    glass: 3,     // Transparent to RF, slightly reflective (Standard Office Glass)
-    drywall: 4,   // Typical interior wall (Gypsum/Partition)
-    wood: 6,      // Door/Cabinet (Solid Wood)
-    brick: 10,    // Light masonry/Brick Wall (Standard Red Brick)
-    concrete: 15, // Structural Concrete (Standard Enterprise Value - Heavy Attenuation)
-    metal: 40,    // Elevators/Server Racks (Effective Signal Block)
+    glass: 2,     // Standard clear glass - minimal attenuation at 5GHz
+    drywall: 3,   // Hollow drywall/gypsum - typical office partition
+    wood: 4,      // Solid wood door/cabinet - light attenuation
+    brick: 12,    // Red brick wall - significant attenuation
+    concrete: 18, // Reinforced concrete - heavy attenuation
+    metal: 100,   // Metal/elevator - effectively blocks all signal
 };
 
 // --- Helper Functions ---
@@ -133,14 +135,23 @@ function buildAttenuationGrid(walls, doors, width, height, cellSize, pixelsPerMe
         const thicknessMeters = thicknessPixels / pixelsPerMeter;
         
         // Calculate Attenuation Density (dB/m)
+        // For accurate simulation, we need to ensure the total attenuation is applied
+        // regardless of how many cells the wall occupies
         const totalAttenuation = MATERIAL_ATTENUATION[wall.material] || 0;
-        let attenuationDensity = totalAttenuation / thicknessMeters;
-
-        // ENTERPRISE FIX: Ensure high-loss materials act as solid barriers
-        // Use a slight multiplier (1.2x) for heavy materials to compensate for grid averaging
-        // This ensures a 15dB wall actually reduces signal by ~15dB across the cells
-        if (['concrete', 'brick', 'metal'].includes(wall.material)) {
-            attenuationDensity *= 1.2; 
+        
+        // Use higher density to ensure full attenuation is applied
+        // The step size is (cellSize/4), so we need density that applies full loss in ~1-2 steps
+        const stepSizeMeters = (cellSize / 4) / pixelsPerMeter;
+        // Target: apply ~80% of attenuation per step through the wall
+        let attenuationDensity = (totalAttenuation * 0.8) / stepSizeMeters;
+        
+        // Ensure minimum density for solid barriers
+        if (wall.material === 'concrete') {
+            attenuationDensity = Math.max(attenuationDensity, 200); // At least 200 dB/m
+        } else if (wall.material === 'brick') {
+            attenuationDensity = Math.max(attenuationDensity, 150);
+        } else if (wall.material === 'metal') {
+            attenuationDensity = 1000; // Complete blocker
         }
 
         // Determine drawing radius based on thickness
@@ -191,7 +202,17 @@ function buildAttenuationGrid(walls, doors, width, height, cellSize, pixelsPerMe
     return grid;
 }
 
+// --- Physics Constants (5GHz Enterprise WiFi) ---
 const FREQUENCY_MHZ = 5000; // 5GHz (Enterprise Standard)
+const WAVELENGTH_M = 299792458 / (FREQUENCY_MHZ * 1000000); // ~0.06m
+
+// Log-Distance Path Loss Model Constants
+// Reference: "Wireless Communications" by Andrea Goldsmith, IEEE 802.11 standards
+const PL_D0_5GHZ = 46.4; // Path loss at 1m for 5GHz (free space reference)
+const PATH_LOSS_EXPONENT = 3.0; // Indoor office environment (2.7-3.5 typical range)
+
+// Standard FSPL formula: PL(d) = 20*log10(d) + 20*log10(f) - 27.55
+// For 5GHz at distance d (meters): PL(d) = 20*log10(d) + 46.4
 const CONSTANT_FSPL = 20 * Math.log10(FREQUENCY_MHZ) - 27.55;
 
 function runDijkstra(startPoint, startSignal, attenuationGrid, cols, rows, cellSize, pixelsPerMeter, maskFn, antennaProps = {}) {
@@ -315,9 +336,10 @@ function runDijkstra(startPoint, startSignal, attenuationGrid, cols, rows, cellS
                     effectiveDist = directDist;
                 }
 
-                // FSPL Calculation
-                const PATH_LOSS_EXPONENT = 3.5;
-                let fsplLoss = (10 * PATH_LOSS_EXPONENT) * Math.log10(Math.max(0.1, effectiveDist)) + CONSTANT_FSPL; 
+                // FSPL Calculation using Log-Distance Path Loss Model
+                // PL(d) = PL(d0) + 10*n*log10(d/d0) where d0 = 1m
+                // For 5GHz: PL(1m) = 46.4 dB, n = 3.0 (indoor office)
+                const fsplLoss = PL_D0_5GHZ + (10 * PATH_LOSS_EXPONENT) * Math.log10(Math.max(1.0, effectiveDist)); 
                 
                 // --- DIRECTIONAL ANTENNA LOGIC ---
                 if (isDirectional) {
@@ -377,7 +399,8 @@ function propagateWave(ap, walls, doors, canvasWidth, canvasHeight, cellSize = 1
             isDirectional: ap.isDirectional,
             azimuth: ap.azimuth,
             beamwidth: ap.beamwidth,
-            frontToBackRatio: ap.frontToBackRatio
+            frontToBackRatio: ap.frontToBackRatio,
+            height: ap.height || 3
         }
     );
 
@@ -519,6 +542,7 @@ function getApHash(ap) {
         x: ap.x,
         y: ap.y,
         p: ap.txPower,
+        h: ap.height || 3, // Include height in hash
         dir: ap.isDirectional,
         az: ap.azimuth,
         bw: ap.beamwidth,

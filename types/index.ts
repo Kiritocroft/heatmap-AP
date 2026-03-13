@@ -30,6 +30,8 @@ export interface AccessPoint extends Point {
   txPower: number; // EIRP (Tx + Gain) in dBm
   channel: number;
   color: string;
+  // Installation Properties
+  height?: number; // Installation height in meters (Default: 3m)
   // Directional Antenna Properties
   isDirectional?: boolean; // If false, Omni-directional (default)
   azimuth?: number; // 0-360 degrees (0 = North/Up)
@@ -46,7 +48,8 @@ export interface APModel {
   totalEIRP: number; // Effective Isotropic Radiated Power (dBm) - This goes to simulation
 }
 
-// Enterprise AP Database - Real World Specs (5GHz Band)
+// Enterprise AP Database - Real World Specs
+// Data sourced from official manufacturer datasheets
 export const AP_PRESETS: Record<string, APModel> = {
   'custom': {
     id: 'custom',
@@ -56,73 +59,32 @@ export const AP_PRESETS: Record<string, APModel> = {
     antennaGain: 0,
     totalEIRP: 20
   },
-  // --- ARUBA (HPE) ---
+  // --- ARUBA AP-315 (802.11ac Wave 2) ---
+  // Source: Aruba AP-315 Datasheet (310 Series)
+  // 5GHz: 4x4 MIMO, 4 spatial streams, +18 dBm per chain, +24 dBm aggregate
+  // 2.4GHz: 2x2 MIMO, 2 spatial streams, +18 dBm per chain, +21 dBm aggregate
+  // Antenna Gain: 5.0 dBi (5GHz), 3.1 dBi (2.4GHz)
+  // EIRP: 29 dBm (5GHz), 24.1 dBm (2.4GHz)
   'aruba-315': {
     id: 'aruba-315',
     vendor: 'Aruba',
     modelName: 'AP-315 (WiFi 5)',
-    defaultTxPower: 18,
-    antennaGain: 3.5,
-    totalEIRP: 21.5
+    defaultTxPower: 24, // 5GHz aggregate conducted power (4x4)
+    antennaGain: 5.0,   // 5GHz max antenna gain
+    totalEIRP: 29       // 24 dBm + 5 dBi = 29 dBm EIRP (5GHz)
   },
-  'aruba-515': {
-    id: 'aruba-515',
-    vendor: 'Aruba',
-    modelName: 'AP-515 (WiFi 6)',
-    defaultTxPower: 21,
-    antennaGain: 4.5,
-    totalEIRP: 25.5
-  },
-  'aruba-635': {
-    id: 'aruba-635',
-    vendor: 'Aruba',
-    modelName: 'AP-635 (WiFi 6E)',
-    defaultTxPower: 22,
-    antennaGain: 5.0,
-    totalEIRP: 27
-  },
-  // --- CISCO ---
-  'cisco-9120': {
-    id: 'cisco-9120',
-    vendor: 'Cisco',
-    modelName: 'Catalyst 9120AX',
-    defaultTxPower: 23,
-    antennaGain: 4,
-    totalEIRP: 27
-  },
-  'meraki-mr46': {
-    id: 'meraki-mr46',
-    vendor: 'Cisco Meraki',
-    modelName: 'MR46 (WiFi 6)',
-    defaultTxPower: 23,
-    antennaGain: 5.4,
-    totalEIRP: 28.4
-  },
-  // --- UBIQUITI ---
-  'unifi-u6-lite': {
-    id: 'unifi-u6-lite',
-    vendor: 'Ubiquiti',
-    modelName: 'UniFi U6 Lite',
-    defaultTxPower: 17,
-    antennaGain: 2.8,
-    totalEIRP: 19.8
-  },
+  // --- UBIQUITI UNIFI U6 PRO (WiFi 6) ---
+  // Source: UniFi U6 Pro Datasheet
+  // 5GHz: 4x4 MU-MIMO, max 26 dBm TX power, 6 dBi antenna gain
+  // 2.4GHz: 2x2 MU-MIMO, max 22 dBm TX power, 4 dBi antenna gain
+  // EIRP: 32 dBm (5GHz), 26 dBm (2.4GHz)
   'unifi-u6-pro': {
     id: 'unifi-u6-pro',
     vendor: 'Ubiquiti',
     modelName: 'UniFi U6 Pro',
-    defaultTxPower: 22,
-    antennaGain: 4.0,
-    totalEIRP: 26
-  },
-  // --- RUCKUS ---
-  'ruckus-r750': {
-    id: 'ruckus-r750',
-    vendor: 'Ruckus',
-    modelName: 'R750 (High Density)',
-    defaultTxPower: 22,
-    antennaGain: 3, // + BeamFlex gain dynamic
-    totalEIRP: 28 // Effective max
+    defaultTxPower: 26, // 5GHz max conducted power
+    antennaGain: 6.0,   // 5GHz antenna gain
+    totalEIRP: 32       // 26 dBm + 6 dBi = 32 dBm EIRP (5GHz)
   }
 };
 
@@ -132,16 +94,16 @@ export interface Device extends Point {
   name: string;
 }
 
-// Telkomsel Corporate Standards for Material Attenuation
-// Industry-Standard Values for 5GHz (High Accuracy Mode)
-// Source: NIST IR 6055 & Aruba VRD
+// Enterprise Standards for Material Attenuation at 5GHz
+// Sources: NIST IR 6055, Aruba VRD, Cisco Wireless Design Guide, IEEE 802.11
+// Values represent dB attenuation per wall penetration at 5GHz
 export const MATERIAL_ATTENUATION: Record<WallMaterial, number> = {
-  glass: 3,      // -3 dB (Standard Clear Glass)
-  drywall: 3,    // -3 dB (Hollow Drywall/Gypsum)
-  wood: 4,       // -4 dB (Standard Door/Plywood)
-  brick: 10,     // -10 dB (Red Brick Wall)
-  concrete: 15,  // -15 dB (Standard Concrete)
-  metal: 50,     // -50 dB (Effective Blocking/Faraday Cage)
+  glass: 2,      // -2 dB (Standard clear glass - minimal attenuation at 5GHz)
+  drywall: 3,    // -3 dB (Hollow drywall/gypsum board - typical office partition)
+  wood: 4,       // -4 dB (Solid wood door/cabinet - light attenuation)
+  brick: 12,     // -12 dB (Red brick wall - significant attenuation)
+  concrete: 18,  // -18 dB (Reinforced concrete - heavy attenuation)
+  metal: 100,    // -100 dB (Metal/elevator - effectively blocks all signal)
 };
 
 // Physics Constants
