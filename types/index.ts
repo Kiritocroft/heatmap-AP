@@ -63,15 +63,15 @@ export const AP_PRESETS: Record<string, APModel> = {
   // Source: Aruba AP-315 Datasheet (310 Series)
   // 5GHz: 4x4 MIMO, 4 spatial streams, +18 dBm per chain, +24 dBm aggregate
   // 2.4GHz: 2x2 MIMO, 2 spatial streams, +18 dBm per chain, +21 dBm aggregate
-  // Antenna Gain: 5.0 dBi (5GHz), 3.1 dBi (2.4GHz)
+  // Antenna Gain: 5.7 dBi (5GHz), 3.1 dBi (2.4GHz)
   // EIRP: 29 dBm (5GHz), 24.1 dBm (2.4GHz)
   'aruba-315': {
     id: 'aruba-315',
     vendor: 'Aruba',
-    modelName: 'AP-315 (WiFi 5)',
-    defaultTxPower: 24, // 5GHz aggregate conducted power (4x4)
-    antennaGain: 5.0,   // 5GHz max antenna gain
-    totalEIRP: 29       // 24 dBm + 5 dBi = 29 dBm EIRP (5GHz)
+    modelName: 'AP-315',
+    defaultTxPower: 18, // 2.4GHz aggregate conducted power (2x2)
+    antennaGain: 3.9,   // 2.4GHz max antenna gain
+    totalEIRP: 21.9       // 18 dBm + 3.9 dBi = 21.9 dBm EIRP (2.4GHz)
   },
   // --- UBIQUITI UNIFI U6 PRO (WiFi 6) ---
   // Source: UniFi U6 Pro Datasheet
@@ -82,9 +82,9 @@ export const AP_PRESETS: Record<string, APModel> = {
     id: 'unifi-u6-pro',
     vendor: 'Ubiquiti',
     modelName: 'UniFi U6 Pro',
-    defaultTxPower: 26, // 5GHz max conducted power
-    antennaGain: 6.0,   // 5GHz antenna gain
-    totalEIRP: 32       // 26 dBm + 6 dBi = 32 dBm EIRP (5GHz)
+    defaultTxPower: 22, // 2.4GHz max conducted power
+    antennaGain: 4.0,   // 2.4GHz antenna gain
+    totalEIRP: 26       // 22 dBm + 4 dBi = 26 dBm EIRP (2.4GHz)
   }
 };
 
