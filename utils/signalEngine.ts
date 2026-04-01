@@ -1,11 +1,11 @@
 import { AccessPoint, Wall, Point, MATERIAL_ATTENUATION, DEFAULT_PIXELS_PER_METER, Door } from "@/types";
 import { getIntersection, distance } from "./geometry";
 
-// Enterprise 5GHz Physics Model
+// Enterprise 2.4GHz Physics Model
 // Reference: IEEE 802.11 standards, Aruba VRD, Cisco Wireless Design Guide
 const PATH_LOSS_EXPONENT = 3.0; // Indoor Office Environment (2.7-3.5 typical)
-const FREQUENCY_MHZ = 5000; // 5GHz Enterprise Standard
-const PL_D0_5GHZ = 46.4; // Path loss at 1m for 5GHz (free space)
+const FREQUENCY_MHZ = 5000; // 2.4GHz Enterprise Standard
+const PL_D0_5GHZ = 46.4; // Path loss at 1m for 2.4GHz (free space)
 
 // Reflection Coefficients (Industry Standard)
 const METAL_REFLECTION_COEFFICIENT = 0.6;    // 60% energy retained after bounce
