@@ -1,0 +1,22 @@
+version: '3.8'
+services:
+  mysql-db:
+    image: mysql:8.0
+    container_name: wifi-project-db
+    restart: always
+    environment:
+      MYSQL_DATABASE: db_wifi_planner
+      MYSQL_ROOT_PASSWORD: password123
+    ports:
+      - "3306:3306"
+    volumes:
+      - ./mysql_data:/var/lib/mysql # Data aman di sini, gak bakal corrupt kalau PC mati
+  
+  phpmyadmin:
+    image: phpmyadmin:latest
+    container_name: wifi-pma
+    restart: always
+    ports:
+      - "8080:80"
+    environment:
+      PMA_HOST: mysql-db
