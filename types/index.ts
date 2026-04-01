@@ -92,17 +92,18 @@ export interface Device extends Point {
   id: string;
   type: 'phone' | 'laptop';
   name: string;
+  connectedApId?: string; // Enterprise Logic: Tracks which AP this device is associated with
 }
 
-// Enterprise Standards for Material Attenuation at 5GHz
+// Enterprise Standards for Material Attenuation at 2.4GHz
 // Sources: NIST IR 6055, Aruba VRD, Cisco Wireless Design Guide, IEEE 802.11
-// Values represent dB attenuation per wall penetration at 5GHz
+// Values represent dB attenuation per wall penetration at 2.4GHz
 export const MATERIAL_ATTENUATION: Record<WallMaterial, number> = {
-  glass: 2,      // -2 dB (Standard clear glass - minimal attenuation at 5GHz)
+  glass: 2,      // -2 dB (Standard clear glass - minimal attenuation at 2.4GHz)
   drywall: 3,    // -3 dB (Hollow drywall/gypsum board - typical office partition)
-  wood: 4,       // -4 dB (Solid wood door/cabinet - light attenuation)
-  brick: 12,     // -12 dB (Red brick wall - significant attenuation)
-  concrete: 18,  // -18 dB (Reinforced concrete - heavy attenuation)
+  wood: 3,       // -3 dB (Solid wood door/cabinet - light attenuation at 2.4GHz)
+  brick: 10,     // -10 dB (Red brick wall - significant attenuation at 2.4GHz)
+  concrete: 15,  // -15 dB (Reinforced concrete - heavy attenuation at 2.4GHz)
   metal: 100,    // -100 dB (Metal/elevator - effectively blocks all signal)
 };
 

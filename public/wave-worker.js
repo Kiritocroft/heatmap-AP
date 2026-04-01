@@ -4,14 +4,14 @@
 // --- Constants & Types (Inlined to avoid import issues) ---
 const DEFAULT_PIXELS_PER_METER = 40;
 
-// Enterprise Standards for Material Attenuation at 5GHz
+// Enterprise Standards for Material Attenuation at 2.4GHz
 // Sources: NIST IR 6055, Aruba VRD, Cisco Wireless Design Guide
 const MATERIAL_ATTENUATION = {
-    glass: 2,     // Standard clear glass - minimal attenuation at 5GHz
+    glass: 2,     // Standard clear glass - minimal attenuation
     drywall: 3,   // Hollow drywall/gypsum - typical office partition
-    wood: 4,      // Solid wood door/cabinet - light attenuation
-    brick: 12,    // Red brick wall - significant attenuation
-    concrete: 18, // Reinforced concrete - heavy attenuation
+    wood: 3,      // Solid wood door/cabinet - light attenuation at 2.4GHz
+    brick: 10,    // Red brick wall - significant attenuation at 2.4GHz
+    concrete: 15, // Reinforced concrete - heavy attenuation at 2.4GHz
     metal: 100,   // Metal/elevator - effectively blocks all signal
 };
 
@@ -38,78 +38,67 @@ function mirrorPointAcrossLine(point, lineStart, lineEnd) {
     };
 }
 
-// Priority Queue for Dijkstra's Algorithm (Binary Heap Implementation for O(log N))
+// // Priority Queue for Dijkstra's Algorithm (Typed Array Implementation for Massive Performance Boost)
 class PriorityQueue {
-    constructor() {
-        this.heap = [];
+    constructor(maxSize) {
+        this.elements = new Uint32Array(maxSize);
+        this.priorities = new Float32Array(maxSize);
+        this.length = 0;
     }
 
     enqueue(element, priority) {
-        const node = { element, priority };
-        this.heap.push(node);
-        this.bubbleUp();
+        let idx = this.length++;
+        while (idx > 0) {
+            let parentIdx = (idx - 1) >>> 1;
+            let parentPriority = this.priorities[parentIdx];
+            if (priority >= parentPriority) break;
+            
+            this.elements[idx] = this.elements[parentIdx];
+            this.priorities[idx] = parentPriority;
+            idx = parentIdx;
+        }
+        this.elements[idx] = element;
+        this.priorities[idx] = priority;
     }
 
     dequeue() {
-        if (this.heap.length === 0) return undefined;
-        const min = this.heap[0];
-        const end = this.heap.pop();
-        if (this.heap.length > 0) {
-            this.heap[0] = end;
-            this.sinkDown();
+        if (this.length === 0) return undefined;
+        const minElement = this.elements[0];
+        
+        const lastIdx = --this.length;
+        if (lastIdx > 0) {
+            const endElement = this.elements[lastIdx];
+            const endPriority = this.priorities[lastIdx];
+            
+            let idx = 0;
+            const length = this.length;
+            const halfLength = length >>> 1;
+            
+            while (idx < halfLength) {
+                let leftIdx = (idx << 1) + 1;
+                let rightIdx = leftIdx + 1;
+                let minIdx = leftIdx;
+                let minPriority = this.priorities[leftIdx];
+                
+                if (rightIdx < length && this.priorities[rightIdx] < minPriority) {
+                    minIdx = rightIdx;
+                    minPriority = this.priorities[rightIdx];
+                }
+
+                if (endPriority <= minPriority) break;
+                
+                this.elements[idx] = this.elements[minIdx];
+                this.priorities[idx] = minPriority;
+                idx = minIdx;
+            }
+            this.elements[idx] = endElement;
+            this.priorities[idx] = endPriority;
         }
-        return min.element;
+        return minElement;
     }
 
     isEmpty() {
-        return this.heap.length === 0;
-    }
-
-    bubbleUp() {
-        let idx = this.heap.length - 1;
-        const element = this.heap[idx];
-        while (idx > 0) {
-            let parentIdx = Math.floor((idx - 1) / 2);
-            let parent = this.heap[parentIdx];
-            if (element.priority >= parent.priority) break;
-            this.heap[parentIdx] = element;
-            this.heap[idx] = parent;
-            idx = parentIdx;
-        }
-    }
-
-    sinkDown() {
-        let idx = 0;
-        const length = this.heap.length;
-        const element = this.heap[0];
-        while (true) {
-            let leftChildIdx = 2 * idx + 1;
-            let rightChildIdx = 2 * idx + 2;
-            let leftChild, rightChild;
-            let swap = null;
-
-            if (leftChildIdx < length) {
-                leftChild = this.heap[leftChildIdx];
-                if (leftChild.priority < element.priority) {
-                    swap = leftChildIdx;
-                }
-            }
-
-            if (rightChildIdx < length) {
-                rightChild = this.heap[rightChildIdx];
-                if (
-                    (swap === null && rightChild.priority < element.priority) ||
-                    (swap !== null && rightChild.priority < leftChild.priority)
-                ) {
-                    swap = rightChildIdx;
-                }
-            }
-
-            if (swap === null) break;
-            this.heap[idx] = this.heap[swap];
-            this.heap[swap] = element;
-            idx = swap;
-        }
+        return this.length === 0;
     }
 }
 
@@ -160,6 +149,9 @@ function buildAttenuationGrid(walls, doors, width, height, cellSize, pixelsPerMe
         const thicknessInCells = Math.max(minThicknessCells * 2, thicknessPixels / cellSize);
         const radius = Math.ceil(thicknessInCells / 2);
 
+        // Pre-filter doors for this specific wall to avoid doing it inside the geometry loop
+        const wallDoors = doors.filter(d => d.wallId === wall.id);
+
         for (let i = 0; i <= steps; i++) {
             const t = i / steps;
             const x = x1 + (x2 - x1) * t;
@@ -168,10 +160,10 @@ function buildAttenuationGrid(walls, doors, width, height, cellSize, pixelsPerMe
             const baseCol = Math.floor(x / cellSize);
             const baseRow = Math.floor(y / cellSize);
 
-            // Door Logic
-            const wallDoors = doors.filter(d => d.wallId === wall.id);
+            // Door Logic 
             let isGap = false;
-            for (const door of wallDoors) {
+            for (let j = 0; j < wallDoors.length; j++) {
+                const door = wallDoors[j];
                 const doorPos = door.ratio * wallLength;
                 const distAlongWall = t * wallLength;
                 const halfWidth = door.width / 2;
@@ -202,17 +194,17 @@ function buildAttenuationGrid(walls, doors, width, height, cellSize, pixelsPerMe
     return grid;
 }
 
-// --- Physics Constants (5GHz Enterprise WiFi) ---
-const FREQUENCY_MHZ = 5000; // 5GHz (Enterprise Standard)
-const WAVELENGTH_M = 299792458 / (FREQUENCY_MHZ * 1000000); // ~0.06m
+// --- Physics Constants (2.4GHz Enterprise WiFi) ---
+const FREQUENCY_MHZ = 2400; // 2.4GHz (Enterprise Standard)
+const WAVELENGTH_M = 299792458 / (FREQUENCY_MHZ * 1000000); // ~0.125m
 
 // Log-Distance Path Loss Model Constants
 // Reference: "Wireless Communications" by Andrea Goldsmith, IEEE 802.11 standards
-const PL_D0_5GHZ = 46.4; // Path loss at 1m for 5GHz (free space reference)
+const PL_D0_2_4GHZ = 40.05; // Path loss at 1m for 2.4GHz (free space reference)
 const PATH_LOSS_EXPONENT = 3.0; // Indoor office environment (2.7-3.5 typical range)
 
 // Standard FSPL formula: PL(d) = 20*log10(d) + 20*log10(f) - 27.55
-// For 5GHz at distance d (meters): PL(d) = 20*log10(d) + 46.4
+// For 2.4GHz at distance d (meters): PL(d) = 20*log10(d) + 40.05
 const CONSTANT_FSPL = 20 * Math.log10(FREQUENCY_MHZ) - 27.55;
 
 function runDijkstra(startPoint, startSignal, attenuationGrid, cols, rows, cellSize, pixelsPerMeter, maskFn, antennaProps = {}) {
@@ -232,7 +224,7 @@ function runDijkstra(startPoint, startSignal, attenuationGrid, cols, rows, cellS
 
     const startIdx = startRow * cols + startCol;
     
-    const pq = new PriorityQueue();
+    const pq = new PriorityQueue(size);
     
     // State now tracks MINIMUM TOTAL LOSS (Signal Strength Inverted)
     // We want to minimize (FSPL + WallLoss + DirectionalLoss) => Maximize Signal
@@ -338,8 +330,8 @@ function runDijkstra(startPoint, startSignal, attenuationGrid, cols, rows, cellS
 
                 // FSPL Calculation using Log-Distance Path Loss Model
                 // PL(d) = PL(d0) + 10*n*log10(d/d0) where d0 = 1m
-                // For 5GHz: PL(1m) = 46.4 dB, n = 3.0 (indoor office)
-                const fsplLoss = PL_D0_5GHZ + (10 * PATH_LOSS_EXPONENT) * Math.log10(Math.max(1.0, effectiveDist)); 
+                // For 2.4GHz: PL(1m) = 40.05 dB, n = 3.0 (indoor office)
+                let fsplLoss = PL_D0_2_4GHZ + (10 * PATH_LOSS_EXPONENT) * Math.log10(Math.max(1.0, effectiveDist)); 
                 
                 // --- DIRECTIONAL ANTENNA LOGIC ---
                 if (isDirectional) {
@@ -378,11 +370,9 @@ function runDijkstra(startPoint, startSignal, attenuationGrid, cols, rows, cellS
     return { signalGrid, distGrid };
 }
 
-function propagateWave(ap, walls, doors, canvasWidth, canvasHeight, cellSize = 10, pixelsPerMeter = DEFAULT_PIXELS_PER_METER) {
+function propagateWave(ap, walls, doors, canvasWidth, canvasHeight, cellSize, pixelsPerMeter, baseAttenuationGrid) {
     const cols = Math.ceil(canvasWidth / cellSize);
     const rows = Math.ceil(canvasHeight / cellSize);
-    
-    const baseAttenuationGrid = buildAttenuationGrid(walls, doors, canvasWidth, canvasHeight, cellSize, pixelsPerMeter);
     
     // Main Signal
     let { signalGrid: mainSignalGrid, distGrid: mainDistGrid } = runDijkstra(
@@ -495,9 +485,10 @@ function computeCompositeHeatmap(aps, walls, doors, width, height, cellSize, pix
     finalSignalGrid.fill(-120);
     finalMinDistGrid.fill(Infinity);
 
+    const dummyBaseAttenuationGrid = buildAttenuationGrid(walls, doors, width, height, cellSize, pixelsPerMeter);
     if (aps && aps.length > 0) {
         aps.forEach(ap => {
-            const { signalGrid, distGrid } = propagateWave(ap, walls, doors, width, height, cellSize, pixelsPerMeter);
+            const { signalGrid, distGrid } = propagateWave(ap, walls, doors, width, height, cellSize, pixelsPerMeter, dummyBaseAttenuationGrid);
             
             for (let i = 0; i < size; i++) {
                 if (signalGrid[i] > finalSignalGrid[i]) {
@@ -519,6 +510,7 @@ function computeCompositeHeatmap(aps, walls, doors, width, height, cellSize, pix
 // --- Caching Variables ---
 const apCache = new Map(); // Key: apId, Value: { hash: string, signalGrid: Float32Array, distGrid: Float32Array }
 let lastEnvironmentHash = "";
+let cachedBaseAttenuationGrid = null;
 
 // Helper to create a simple hash for environment (walls, doors, dimensions)
 function getEnvironmentHash(walls, doors, width, height, cellSize, pixelsPerMeter) {
@@ -568,6 +560,7 @@ self.onmessage = (e) => {
     if (currentEnvHash !== lastEnvironmentHash) {
         // Environment changed (walls moved, added, etc) -> INVALIDATE ALL CACHE
         apCache.clear();
+        cachedBaseAttenuationGrid = buildAttenuationGrid(walls, doors, width, height, cellSize, pixelsPerMeter);
         lastEnvironmentHash = currentEnvHash;
     }
 
@@ -578,20 +571,33 @@ self.onmessage = (e) => {
     
     const finalSignalGrid = new Float32Array(size);
     const finalMinDistGrid = new Float32Array(size);
+    const bestApIndexGrid = new Int32Array(size); // Tracks which AP provides strongest signal
     
     finalSignalGrid.fill(-120);
     finalMinDistGrid.fill(Infinity);
+    bestApIndexGrid.fill(-1);
+
+    // Prepare arrays for channel power accumulation (for Interference calculation)
+    const channelPowerGrids = new Map();
+    if (aps && aps.length > 0) {
+        const activeChannels = new Set(aps.map(ap => ap.channel || 6));
+        activeChannels.forEach(ch => {
+            const grid = new Float64Array(size); // Float64 to avoid overflow with high mW
+            grid.fill(0);
+            channelPowerGrids.set(ch, grid);
+        });
+    }
 
     // 3. Process each requested AP (using Cache if available)
     if (aps && aps.length > 0) {
-        aps.forEach(ap => {
+        aps.forEach((ap, apIndex) => {
             const apHash = getApHash(ap);
             let cached = apCache.get(ap.id);
 
             // Check if cache exists and is valid (properties match)
             if (!cached || cached.hash !== apHash) {
                 // Cache Miss or Stale -> Calculate
-                const { signalGrid, distGrid } = propagateWave(ap, walls, doors, width, height, cellSize, pixelsPerMeter);
+                const { signalGrid, distGrid } = propagateWave(ap, walls, doors, width, height, cellSize, pixelsPerMeter, cachedBaseAttenuationGrid);
                 
                 // Save to Cache
                 cached = {
@@ -605,21 +611,56 @@ self.onmessage = (e) => {
             // Merge into Final Grid (Max Composition)
             const apSignal = cached.signalGrid;
             const apDist = cached.distGrid;
+            const chGrid = channelPowerGrids.get(ap.channel || 6);
 
-            // Using loop unrolling or typed array methods could be faster, but simple loop is fine for now
             for (let i = 0; i < size; i++) {
-                if (apSignal[i] > finalSignalGrid[i]) {
-                    finalSignalGrid[i] = apSignal[i];
-                    finalMinDistGrid[i] = apDist[i];
+                const signal = apSignal[i];
+                if (signal > -120) {
+                    // Accumulate Channel Power (mW)
+                    const powerMw = Math.pow(10, signal / 10);
+                    chGrid[i] += powerMw;
+
+                    if (signal > finalSignalGrid[i]) {
+                        finalSignalGrid[i] = signal;
+                        finalMinDistGrid[i] = apDist[i];
+                        bestApIndexGrid[i] = apIndex;
+                    }
                 }
             }
         });
+    }
+
+    // 4. Compute SINR (Signal-to-Interference-plus-Noise Ratio)
+    const sinrGrid = new Float32Array(size);
+    sinrGrid.fill(-100);
+    const noiseFloorMw = Math.pow(10, -95 / 10); // Noise Floor (-95 dBm)
+
+    if (aps && aps.length > 0) {
+        for (let i = 0; i < size; i++) {
+            const maxSignal = finalSignalGrid[i];
+            const bestIndex = bestApIndexGrid[i];
+            
+            if (maxSignal > -120 && bestIndex !== -1) {
+                const bestAp = aps[bestIndex];
+                const ch = bestAp.channel || 6;
+                const totalChannelPower = channelPowerGrids.get(ch)[i];
+                const maxSignalMw = Math.pow(10, maxSignal / 10);
+                
+                const interferenceMw = totalChannelPower - maxSignalMw;
+                const totalInterferenceAndNoiseMw = interferenceMw + noiseFloorMw;
+                
+                const sinrDb = maxSignal - (10 * Math.log10(totalInterferenceAndNoiseMw));
+                sinrGrid[i] = sinrDb;
+            }
+        }
     }
 
     // Return ID to validate request freshness
     self.postMessage({ 
         signalGrid: finalSignalGrid, 
         minDistGrid: finalMinDistGrid,
+        bestApIndexGrid,
+        sinrGrid,
         rows, 
         cols, 
         id 

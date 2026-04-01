@@ -44,6 +44,9 @@ export default function Home() {
   const [autoSaveDb, setAutoSaveDb] = useState(false);
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
 
+  // Enterprise State
+  const [viewMode, setViewMode] = useState<'rssi' | 'sinr'>('rssi');
+
   // Cache Version Check - Clear old data if version mismatch
   useEffect(() => {
     const storedVersion = localStorage.getItem('heatmap_cache_version');
@@ -351,6 +354,11 @@ export default function Home() {
         isSavingToDb={isSavingToDb}
         autoSaveDb={autoSaveDb}
         onToggleAutoSaveDb={() => setAutoSaveDb(!autoSaveDb)}
+        viewMode={viewMode}
+        onViewModeChange={setViewMode}
+        onAutoChannel={() => editorRef.current?.autoAssignChannels()}
+        onClearAps={() => editorRef.current?.clearAps()}
+        onClearDevices={() => editorRef.current?.clearDevices()}
       />
 
       {/* Auto-save Status Indicator */}
@@ -372,6 +380,7 @@ export default function Home() {
           activeTool={activeTool}
           selectedMaterial={selectedMaterial}
           scale={scale}
+          viewMode={viewMode}
           onEditorReady={loadFloorData}
           onSelectionChange={(hasSel, entity) => {
             setCanDelete(hasSel);

@@ -20,7 +20,7 @@ interface ToolbarProps {
     onClearAll: () => void;
     canDelete: boolean;
     onDeleteSelected: () => void;
-    selectedEntity: 'wall' | 'ap' | 'door' | null;
+    selectedEntity: 'wall' | 'ap' | 'door' | 'device' | null;
     showAntenna: boolean;
     onToggleAntenna: () => void;
     
@@ -37,6 +37,13 @@ interface ToolbarProps {
     isSavingToDb: boolean;
     autoSaveDb: boolean;
     onToggleAutoSaveDb: () => void;
+
+    // Enterprise Props
+    viewMode: 'rssi' | 'sinr';
+    onViewModeChange: (mode: 'rssi' | 'sinr') => void;
+    onAutoChannel: () => void;
+    onClearAps: () => void;
+    onClearDevices: () => void;
 }
 
 export function Toolbar({
@@ -47,7 +54,8 @@ export function Toolbar({
     onUploadImage, imageOpacity, onOpacityChange,
     selectedEntity, showAntenna, onToggleAntenna,
     floors, currentFloorId, onFloorChange, onAddFloor, onDeleteFloor, onReorderFloors,
-    onSaveToDb, isSavingToDb, autoSaveDb, onToggleAutoSaveDb
+    onSaveToDb, isSavingToDb, autoSaveDb, onToggleAutoSaveDb,
+    viewMode, onViewModeChange, onAutoChannel, onClearAps, onClearDevices
 }: ToolbarProps) {
 
     // --- Drag & Drop ---
@@ -227,6 +235,31 @@ export function Toolbar({
                     </div>
                 )}
 
+                {/* View Mode (Enterprise) */}
+                <div className="space-y-3">
+                    <label className="text-xs font-bold text-neutral-400 uppercase tracking-wider">View Mode</label>
+                    <div className="flex bg-neutral-100 rounded-lg p-1">
+                        <button
+                            onClick={() => onViewModeChange('rssi')}
+                            className={cn(
+                                "flex-1 py-1.5 text-xs font-medium rounded-md transition-colors",
+                                viewMode === 'rssi' ? "bg-white text-blue-700 shadow-sm" : "text-neutral-500 hover:text-neutral-700"
+                            )}
+                        >
+                            Coverage (RSSI)
+                        </button>
+                        <button
+                            onClick={() => onViewModeChange('sinr')}
+                            className={cn(
+                                "flex-1 py-1.5 text-xs font-medium rounded-md transition-colors",
+                                viewMode === 'sinr' ? "bg-white text-blue-700 shadow-sm" : "text-neutral-500 hover:text-neutral-700"
+                            )}
+                        >
+                            Interference (SINR)
+                        </button>
+                    </div>
+                </div>
+
                 {/* Floor Plan Section */}
                 <div className="space-y-3">
                     <label className="text-xs font-bold text-neutral-400 uppercase tracking-wider">Floor Plan</label>
@@ -346,6 +379,17 @@ export function Toolbar({
                         </button>
                     )}
 
+                    <button
+                        onClick={onAutoChannel}
+                        className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-white border border-blue-200 rounded-md text-sm font-medium text-blue-600 hover:bg-blue-50 transition-colors"
+                        title="Auto-Assign Channels to minimize Interference"
+                    >
+                        <RefreshCw size={16} />
+                        Auto Channel
+                    </button>
+
+                    <div className="h-px bg-neutral-100 my-2"></div>
+
                     <div className="flex gap-2">
                         <button
                             onClick={() => setScale(Math.min(3, scale + 0.1))}
@@ -383,12 +427,27 @@ export function Toolbar({
                         Delete Selected
                     </button>
 
+                    <div className="flex gap-2">
+                        <button
+                            onClick={onClearAps}
+                            className="flex-1 flex items-center justify-center gap-2 px-2 py-2 bg-red-50 border border-red-200 rounded-md text-xs font-medium text-red-600 hover:bg-red-100 transition-colors"
+                        >
+                            <Trash2 size={14} /> APs
+                        </button>
+                        <button
+                            onClick={onClearDevices}
+                            className="flex-1 flex items-center justify-center gap-2 px-2 py-2 bg-red-50 border border-red-200 rounded-md text-xs font-medium text-red-600 hover:bg-red-100 transition-colors"
+                        >
+                            <Trash2 size={14} /> Devices
+                        </button>
+                    </div>
+
                     <button
                         onClick={onClearAll}
-                        className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-white border border-neutral-200 rounded-md text-sm font-medium text-neutral-600 hover:bg-neutral-50 hover:text-red-600 transition-colors"
+                        className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-white border border-red-300 rounded-md text-sm font-bold text-red-600 hover:bg-red-600 hover:text-white transition-colors mt-2"
                     >
                         <Trash2 size={16} />
-                        Clear All
+                        Clear All Data
                     </button>
                 </div>
 

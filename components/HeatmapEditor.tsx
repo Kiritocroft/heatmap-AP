@@ -13,6 +13,7 @@ interface HeatmapEditorProps {
     onSelectionChange: (hasSelection: boolean, entity: { type: 'wall' | 'ap' | 'door' | 'device', id: string } | null) => void;
     backgroundImage: string | null;
     imageOpacity: number;
+    viewMode?: 'rssi' | 'sinr';
     onEditorReady?: () => void;
 }
 
@@ -27,8 +28,11 @@ export interface HeatmapData {
 export interface HeatmapEditorRef {
     deleteSelected: () => void;
     clearAll: () => void;
+    clearAps: () => void;
+    clearDevices: () => void;
     getData: () => HeatmapData;
     loadData: (data: HeatmapData) => void;
+    autoAssignChannels: () => void;
 }
 
 export const HeatmapEditor = forwardRef<HeatmapEditorRef, HeatmapEditorProps>(({
@@ -38,6 +42,7 @@ export const HeatmapEditor = forwardRef<HeatmapEditorRef, HeatmapEditorProps>(({
     onSelectionChange,
     backgroundImage,
     imageOpacity,
+    viewMode = 'rssi',
     onEditorReady
 }, ref) => {
     const containerRef = useRef<HTMLDivElement>(null);
@@ -62,6 +67,9 @@ export const HeatmapEditor = forwardRef<HeatmapEditorRef, HeatmapEditorProps>(({
 
     const signalGridRef = useRef<Float32Array | null>(null);
     const minDistGridRef = useRef<Float32Array | null>(null);
+    const bestApIndexGridRef = useRef<Int32Array | null>(null);
+    const sinrGridRef = useRef<Float32Array | null>(null);
+
     const gridDimsRef = useRef({ rows: 0, cols: 0 });
     const bgImageRef = useRef<HTMLImageElement | null>(null);
     const offscreenCanvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -89,13 +97,22 @@ export const HeatmapEditor = forwardRef<HeatmapEditorRef, HeatmapEditorProps>(({
         DEAD:      [0, 0, 0, 0]          // < -85 (Transparent)
     };
 
-    const getPixelColor = (dbm: number) => {
-        if (dbm > -45) return COLORS.EXCELLENT;
-        if (dbm > -60) return COLORS.GOOD;
-        if (dbm > -65) return COLORS.FAIR;
-        if (dbm > -75) return COLORS.WEAK;
-        if (dbm > -85) return COLORS.BAD;
-        return COLORS.DEAD;
+    const getPixelColor = (val: number, isSinr: boolean = false) => {
+        if (isSinr) {
+            if (val > 25) return COLORS.EXCELLENT;
+            if (val > 15) return COLORS.GOOD;
+            if (val > 10) return COLORS.FAIR;
+            if (val > 5)  return COLORS.WEAK;
+            if (val > -5) return COLORS.BAD;
+            return COLORS.DEAD;
+        } else {
+            if (val > -45) return COLORS.EXCELLENT;
+            if (val > -60) return COLORS.GOOD;
+            if (val > -65) return COLORS.FAIR;
+            if (val > -75) return COLORS.WEAK;
+            if (val > -85) return COLORS.BAD;
+            return COLORS.DEAD;
+        }
     };
 
     // --- Autosave & Load ---
@@ -201,6 +218,24 @@ export const HeatmapEditor = forwardRef<HeatmapEditorRef, HeatmapEditorProps>(({
                 localStorage.removeItem('heatmap_autosave');
             }
         },
+        clearAps: () => {
+             if (confirm('Hapus semua AP yang terpasang di denah?')) {
+                 setAps([]);
+                 if (selectedEntity?.type === 'ap') {
+                     setSelectedEntity(null);
+                     onSelectionChange(false, null);
+                 }
+             }
+        },
+        clearDevices: () => {
+             if (confirm('Hapus semua Perangkat (Device) yang terpasang di denah?')) {
+                 setDevices([]);
+                 if (selectedEntity?.type === 'device') {
+                     setSelectedEntity(null);
+                     onSelectionChange(false, null);
+                 }
+             }
+        },
         getData: () => ({
             walls,
             aps,
@@ -220,6 +255,34 @@ export const HeatmapEditor = forwardRef<HeatmapEditorRef, HeatmapEditorProps>(({
             setPixelsPerMeter(data.pixelsPerMeter || DEFAULT_PIXELS_PER_METER);
             setSelectedEntity(null);
             onSelectionChange(false, null);
+        },
+        autoAssignChannels: () => {
+            const CHANNELS = [1, 6, 11];
+            const newAps = [...aps];
+            newAps.forEach((ap) => {
+                const usedChannels: Record<number, number> = {};
+                CHANNELS.forEach(ch => usedChannels[ch] = 0);
+
+                newAps.forEach(otherAp => {
+                    if (otherAp.id === ap.id || !otherAp.channel) return;
+                    const dist = Math.hypot(ap.x - otherAp.x, ap.y - otherAp.y) / pixelsPerMeter;
+                    // Only care if they are within interference range (~30m)
+                    if (dist < 40) {
+                        usedChannels[otherAp.channel] += 1 / Math.max(1, dist);
+                    }
+                });
+
+                let bestCh = CHANNELS[0];
+                let minInterference = Infinity;
+                CHANNELS.forEach(ch => {
+                    if (usedChannels[ch] < minInterference) {
+                        minInterference = usedChannels[ch];
+                        bestCh = ch;
+                    }
+                });
+                ap.channel = bestCh;
+            });
+            setAps(newAps);
         }
     }));
 
@@ -322,7 +385,7 @@ export const HeatmapEditor = forwardRef<HeatmapEditorRef, HeatmapEditorProps>(({
         };
 
         worker.onmessage = (e) => {
-            const { signalGrid, minDistGrid, rows, cols, id } = e.data;
+            const { signalGrid, minDistGrid, bestApIndexGrid, sinrGrid, rows, cols, id } = e.data;
             
             // Race Condition Fix: Discard if ID doesn't match latest request
             if (id !== calculationIdRef.current) {
@@ -340,10 +403,14 @@ export const HeatmapEditor = forwardRef<HeatmapEditorRef, HeatmapEditorProps>(({
             if (signalGrid && minDistGrid) {
                 signalGridRef.current = signalGrid;
                 minDistGridRef.current = minDistGrid;
+                bestApIndexGridRef.current = bestApIndexGrid;
+                sinrGridRef.current = sinrGrid;
                 gridDimsRef.current = { rows, cols };
             } else {
                 signalGridRef.current = null;
                 minDistGridRef.current = null;
+                bestApIndexGridRef.current = null;
+                sinrGridRef.current = null;
                 gridDimsRef.current = { rows: 0, cols: 0 };
             }
         };
@@ -746,7 +813,7 @@ export const HeatmapEditor = forwardRef<HeatmapEditorRef, HeatmapEditorProps>(({
 
             if (signalGridRef.current && aps.length > 0) {
                 const { rows, cols } = gridDimsRef.current;
-                const grid = signalGridRef.current;
+                const grid = viewMode === 'sinr' && sinrGridRef.current ? sinrGridRef.current : signalGridRef.current;
 
                 // Render Full Grid (Simplified for robustness and Panning support)
                 // Since we use Offscreen Canvas, rendering 600x400 pixels is fast.
@@ -782,13 +849,15 @@ export const HeatmapEditor = forwardRef<HeatmapEditorRef, HeatmapEditorProps>(({
                             const val = grid[idx];
                             const pixelIdx = (r * endCol + c) * 4;
 
-                            if (val <= -120) {
+                            if (viewMode === 'sinr' && val === -100) {
+                                data[pixelIdx + 3] = 0;
+                                continue;
+                            } else if (viewMode === 'rssi' && val <= -120) {
                                 data[pixelIdx + 3] = 0;
                                 continue;
                             }
 
-                            const minDist = minDistGridRef.current ? minDistGridRef.current[idx] : 0;
-                            const [R, G, B, A_BASE] = getPixelColor(val);
+                            const [R, G, B, A_BASE] = getPixelColor(val, viewMode === 'sinr');
                             
                             // Multi-Source Wave Interference Animation
                             // "Baku Tabrak" Effect: Summing waves from all APs to create interference patterns
@@ -1509,16 +1578,10 @@ export const HeatmapEditor = forwardRef<HeatmapEditorRef, HeatmapEditorProps>(({
                         const dev = devices.find(d => d.id === selectedEntity.id);
                         if (!dev) return null;
                         
-                        let bestAp: AccessPoint | null = null;
-                        let maxSignal = -Infinity;
-
-                        aps.forEach(ap => {
+                        const { bestAp, maxSignal } = aps.reduce<{bestAp: AccessPoint | null, maxSignal: number}>((acc, ap) => {
                             const sig = calculateSignalStrength(ap, dev);
-                            if (sig > maxSignal) {
-                                maxSignal = sig;
-                                bestAp = ap;
-                            }
-                        });
+                            return sig > acc.maxSignal ? { bestAp: ap, maxSignal: sig } : acc;
+                        }, { bestAp: null, maxSignal: -Infinity });
 
                         if (!bestAp) return <div className="text-[10px] text-slate-400 italic text-center py-1">No Signal</div>;
 
@@ -1526,7 +1589,9 @@ export const HeatmapEditor = forwardRef<HeatmapEditorRef, HeatmapEditorProps>(({
                             <div className="bg-slate-50 rounded p-1.5 flex flex-col gap-1 border border-slate-100">
                                 <div className="flex justify-between text-[10px]">
                                     <span className="text-slate-500">Connected to:</span>
-                                    <span className="font-medium text-blue-600">Ch {bestAp.channel}</span>
+                                    <span className="font-medium text-blue-600">
+                                        {bestAp?.channel ? `Ch ${bestAp.channel}` : 'Auto'}
+                                    </span>
                                 </div>
                                 <div className="flex justify-between text-[10px]">
                                     <span className="text-slate-500">Signal:</span>
