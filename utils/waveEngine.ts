@@ -141,10 +141,10 @@ export function buildAttenuationGrid(
     return grid;
 }
 
-// Enterprise 5GHz Constants
+// Enterprise 2.4GHz Constants
 // Reference: IEEE 802.11 standards, Aruba VRD, Cisco Wireless Design Guide
-const FREQUENCY_MHZ = 5000; // 5GHz Enterprise Standard
-const PL_D0_5GHZ = 46.4; // Path loss at 1m for 5GHz
+const FREQUENCY_MHZ = 5000; // 2.4GHz Enterprise Standard
+const PL_D0_5GHZ = 46.4; // Path loss at 1m for 2.4GHz
 const PATH_LOSS_EXPONENT = 3.0; // Indoor Office Environment
 
 // Core Propagation Logic (Dijkstra)
