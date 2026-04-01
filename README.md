@@ -1,22 +1,27 @@
 # WiFi Signal Heatmap Simulator (Enterprise Standard)
 
-A physically accurate WiFi signal propagation simulator designed for enterprise network planning. This tool simulates the coverage of **Aruba Access Point 315** in complex indoor environments, accounting for material attenuation, reflection, and diffraction.
+A physically accurate WiFi signal propagation simulator designed for enterprise network planning. This tool simulates the coverage of **Aruba Access Point 315** and **Ubiquiti UniFi U6 Pro** in complex indoor environments, accounting for material attenuation, reflection, and diffraction.
 
-![Preview](preview.png)
+![Preview](https://i.imgur.com/lmlYoeF.png)
 
 ## 🚀 Key Features
 
 ### 📡 Physically Accurate Simulation
 -   **Propagation Model**: Uses **Dijkstra's Algorithm** (Wave Propagation) adapted for radio frequency decay (FSPL) using **Euclidean Distance** for perfect circular coverage logic.
--   **Hardware Model**: Calibrated for **Aruba AP 315** (2.4GHz Band, 18dBm Tx Power, 4x4:4SS MU-MIMO, ~30m effective indoor range).
--   **Antenna Pattern**: Realistic 24-sided Azimuth/Elevation plot visualization for Aruba AP-315.
--   **Material Physics** (Calibrated to **NIST IR 6055** & **Aruba VRD** standards):
-    -   **Glass**: -3 dB (Standard Clear)
+-   **Hardware Model**: Calibrated for industry-standard 2.4GHz deployments (e.g., **Aruba AP-315**, **UniFi U6 Pro**) including adjustable Tx Power and Antenna Gain (EIRP).
+-   **Antenna Pattern**: Supports **Omni & Directional** antennas with adjustable Azimuth, Beamwidth, and Front-to-Back ratio.
+-   **Material Physics** (Calibrated to **NIST IR 6055** & **Aruba VRD** standards for 2.4GHz):
+    -   **Glass**: -2 dB (Standard Clear)
     -   **Drywall**: -3 dB (Hollow Gypsum)
-    -   **Wood**: -4 dB (Standard Door/Plywood)
-    -   **Brick**: -10 dB (Red Brick)
-    -   **Concrete**: -15 dB (Standard Structural)
-    -   **Metal**: -50 dB (Effective Blocking / Faraday Cage)
+    -   **Wood**: -4 dB (Solid Wood / Door)
+    -   **Brick**: -12 dB (Red Brick)
+    -   **Concrete**: -18 dB (Reinforced Concrete)
+    -   **Metal**: -100 dB (Effective Blocking / Faraday Cage)
+
+### 🧮 Mathematical Model (2.4GHz Physics)
+- **EIRP (Equivalent Isotropically Radiated Power)**: `Tx Power (dBm) + Antenna Gain (dBi) = EIRP (dBm)`
+- **Free Space Path Loss (FSPL)**: `PL(d) = 40.0 + 28 * log10(d)` (Standard 2.4GHz Log-Distance Path Loss Model for indoor environments where n=2.8)
+- **Received Signal**: `EIRP - (FSPL + Total Wall Attenuation)`
 -   **Advanced Wave Physics**:
     -   **Reflection**: Implements **Image Source Method** for realistic signal bouncing off metal surfaces.
     -   **Diffraction**: Simulates signal bending around corners and through door gaps.
@@ -80,4 +85,4 @@ This simulator follows the industries standards for WiFi planning:
 -   **Reference**: NIST IR 6055, Aruba Networks Validated Reference Design (VRD)
 
 ---
-Developed with ❤️ using Next.js and Physics-based algorithms.
+Developed using Next.js and Physics-based algorithms.
